@@ -7,6 +7,7 @@ from PIL import Image
 import time
 import urllib.parse
 import base64
+import requests
 import html
 import hashlib
 import secrets as pysecrets
@@ -698,6 +699,93 @@ def import_backup(raw, wipe=True):
     c.close()
     return True, "กู้คืนข้อมูลเรียบร้อย"
 
+# ── [FIX v12] สำรองขึ้น Google Drive ──────────────────────────
+#   ใช้ OAuth refresh token ของเจ้าของ Drive (ไม่ใช่ service account)
+#   เหตุผล: service account ไม่มี storage quota ของตัวเอง อัปโหลดเข้าโฟลเดอร์
+#   ที่แชร์ใน My Drive จะได้ error "Service Accounts do not have storage quota"
+#   ทางแก้ที่ Google บอกคือใช้ Shared Drive (ต้องมี Workspace เสียเงิน)
+#   หรือ OAuth delegation — สำหรับ Gmail ธรรมดาจึงเหลือทางเดียวคือ OAuth
+#
+#   ⚠️ สำคัญ: ที่ Google Cloud Console ต้องกด "Publish to Production"
+#   ถ้าปล่อยเป็น "Testing" refresh token จะหมดอายุทุก 7 วัน
+#
+#   ตั้งค่าใน .streamlit/secrets.toml :
+#     [gdrive]
+#     client_id     = "xxx.apps.googleusercontent.com"
+#     client_secret = "xxx"
+#     refresh_token = "1//xxx"
+#     folder_id     = "1AbC..."   # ไม่ใส่ก็ได้ = ลงที่ root ของ Drive
+GD_TOKEN_URL  = "https://oauth2.googleapis.com/token"
+GD_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files"
+GD_FILES_URL  = "https://www.googleapis.com/drive/v3/files"
+
+def gdrive_cfg():
+    """คืน dict ค่าตั้งค่า หรือ None ถ้ายังไม่ได้ตั้ง secrets"""
+    try:
+        g = st.secrets["gdrive"]
+        if not all(g.get(k) for k in ("client_id","client_secret","refresh_token")):
+            return None
+        return {"client_id": g["client_id"], "client_secret": g["client_secret"],
+                "refresh_token": g["refresh_token"], "folder_id": g.get("folder_id","")}
+    except (KeyError, FileNotFoundError, AttributeError):
+        return None
+
+@st.cache_data(ttl=2700, show_spinner=False)
+def _gd_access_token(client_id, client_secret, refresh_token):
+    """access token อายุ 1 ชม. — แคชไว้ 45 นาที ไม่งั้นจะยิงขอใหม่ทุก 3 วิ
+    ตามรอบ autorefresh ซึ่งจะโดน rate limit ของ Google แน่นอน"""
+    r = requests.post(GD_TOKEN_URL, timeout=20, data={
+        "client_id": client_id, "client_secret": client_secret,
+        "refresh_token": refresh_token, "grant_type": "refresh_token"})
+    if r.status_code != 200:
+        raise RuntimeError(f"ขอ access token ไม่สำเร็จ ({r.status_code}): {r.text[:200]}")
+    return r.json()["access_token"]
+
+def _gd_headers(cfg):
+    return {"Authorization": "Bearer " + _gd_access_token(
+        cfg["client_id"], cfg["client_secret"], cfg["refresh_token"])}
+
+def gdrive_upload(cfg, filename, data):
+    """อัปโหลดไฟล์สำรอง — คืน (ok, ข้อความ)"""
+    try:
+        meta = {"name": filename}
+        if cfg["folder_id"]: meta["parents"] = [cfg["folder_id"]]
+        r = requests.post(
+            GD_UPLOAD_URL, params={"uploadType": "multipart", "fields": "id,name"},
+            headers=_gd_headers(cfg), timeout=180,
+            files={"metadata": ("metadata", json.dumps(meta), "application/json; charset=UTF-8"),
+                   "file": (filename, data, "application/json")})
+        if r.status_code not in (200, 201):
+            return False, f"อัปโหลดไม่สำเร็จ ({r.status_code}): {r.text[:200]}"
+        return True, f"อัปโหลด {r.json().get('name', filename)} ขึ้น Drive แล้ว"
+    except (requests.RequestException, RuntimeError, ValueError) as e:
+        return False, str(e)
+
+def gdrive_list(cfg, limit=20):
+    """รายชื่อไฟล์สำรองบน Drive ใหม่→เก่า — คืน (ok, list|ข้อความ)"""
+    try:
+        q = "trashed=false and name contains 'trip_backup_'"
+        if cfg["folder_id"]: q = f"'{cfg['folder_id']}' in parents and {q}"
+        r = requests.get(GD_FILES_URL, headers=_gd_headers(cfg), timeout=60, params={
+            "q": q, "orderBy": "createdTime desc", "pageSize": limit,
+            "fields": "files(id,name,size,createdTime)"})
+        if r.status_code != 200:
+            return False, f"อ่านรายการไม่สำเร็จ ({r.status_code}): {r.text[:200]}"
+        return True, r.json().get("files", [])
+    except (requests.RequestException, RuntimeError, ValueError) as e:
+        return False, str(e)
+
+def gdrive_download(cfg, file_id):
+    """ดาวน์โหลดไฟล์สำรอง — คืน (ok, bytes|ข้อความ)"""
+    try:
+        r = requests.get(f"{GD_FILES_URL}/{file_id}", headers=_gd_headers(cfg),
+                         params={"alt": "media"}, timeout=180)
+        if r.status_code != 200:
+            return False, f"ดาวน์โหลดไม่สำเร็จ ({r.status_code}): {r.text[:200]}"
+        return True, r.content
+    except (requests.RequestException, RuntimeError) as e:
+        return False, str(e)
+
 def heartbeat(u):
     if u:
         t = now_str()   # [FIX v11] เวลาไทย ไม่ใช่เวลาเซิร์ฟเวอร์
@@ -1251,6 +1339,24 @@ elif menu == "manage":
 
     # ── [FIX v11] TAB: สำรองข้อมูล ───────────────────────
     with t_backup:
+        # [FIX v12] ล็อกด้วย PIN — ไฟล์สำรองมีเลขบัญชีธนาคาร พร้อมเพย์
+        #   แชทส่วนตัวของทุกคน และ pin_hash (PIN 4 หลักมีแค่ 10,000 แบบ
+        #   ต่อให้เป็น PBKDF2 ก็ brute-force ได้) จึงไม่ควรให้ใครก็กดโหลดได้
+        if not me:
+            st.warning("กรุณาเข้าสู่ระบบก่อนใช้งานส่วนนี้")
+            st.stop()
+        if not st.session_state.get("backup_unlocked"):
+            st.info("🔒 ส่วนนี้มีข้อมูลบัญชีธนาคารและแชทส่วนตัว — ยืนยันด้วย PIN ของคุณ")
+            with st.form("unlock_backup"):
+                _p = st.text_input("🔑 PIN ของคุณ:", type="password", max_chars=6)
+                if st.form_submit_button("ปลดล็อก", type="primary"):
+                    c=db(); _r=c.execute("SELECT pin_hash,pin_salt FROM all_users WHERE name=?",(me,)).fetchone(); c.close()
+                    if _r and check_pin(_p, _r["pin_hash"], _r["pin_salt"]):
+                        st.session_state["backup_unlocked"] = True; st.rerun()
+                    else:
+                        st.error("❌ PIN ไม่ถูกต้อง")
+            st.stop()
+
         st.warning(
             "⚠️ **ข้อมูลไม่ถาวร** — Streamlit Community Cloud ล้างไฟล์ในเครื่องทุกครั้ง "
             "ที่ app reboot หรือ deploy โค้ดใหม่ บิล/แชท/ยอดหนี้จะหายทั้งหมด "
@@ -1283,6 +1389,49 @@ elif menu == "manage":
                     st.success(f"✅ {msg}"); time.sleep(0.8); st.rerun()
                 else:
                     st.error(f"❌ {msg}")
+
+        # ── [FIX v12] Google Drive ────────────────────────
+        st.markdown('<div class="section-head" style="margin-top:18px;">☁️ Google Drive</div>',
+                    unsafe_allow_html=True)
+        _gd = gdrive_cfg()
+        if not _gd:
+            st.info("ยังไม่ได้ตั้งค่า — ดูวิธีทำใน `GOOGLE_DRIVE_SETUP.md` "
+                    "แล้วใส่ค่าใน Streamlit Cloud → Settings → Secrets")
+        else:
+            gc1, gc2 = st.columns(2)
+            with gc1:
+                if st.button("☁️ อัปโหลดขึ้น Drive ตอนนี้", type="primary", use_container_width=True):
+                    with st.spinner("กำลังอัปโหลด..."):
+                        _ok, _msg = gdrive_upload(
+                            _gd, f"trip_backup_{datetime.now(TZ).strftime('%Y%m%d_%H%M%S')}.json",
+                            export_backup())
+                    (st.success if _ok else st.error)(("✅ " if _ok else "❌ ") + _msg)
+            with gc2:
+                if st.button("🔄 โหลดรายการไฟล์บน Drive", use_container_width=True):
+                    st.session_state["gd_files"] = gdrive_list(_gd)
+
+            _res = st.session_state.get("gd_files")
+            if _res:
+                _ok, _files = _res
+                if not _ok:
+                    st.error(f"❌ {_files}")
+                elif not _files:
+                    st.caption("ยังไม่มีไฟล์สำรองบน Drive")
+                else:
+                    _lbl = {f"{f['name']}  ({int(f.get('size',0))/1024:,.0f} KB)": f["id"] for f in _files}
+                    _pick = st.selectbox("เลือกไฟล์ที่จะกู้คืน:", list(_lbl.keys()))
+                    _cf = st.checkbox("ยืนยันเขียนทับข้อมูลปัจจุบันด้วยไฟล์นี้", key="gd_confirm")
+                    if st.button("♻️ กู้คืนจาก Drive", disabled=not _cf, use_container_width=True):
+                        with st.spinner("กำลังดาวน์โหลด..."):
+                            _dok, _data = gdrive_download(_gd, _lbl[_pick])
+                        if not _dok:
+                            st.error(f"❌ {_data}")
+                        else:
+                            _iok, _imsg = import_backup(_data, wipe=True)
+                            if _iok:
+                                st.success(f"✅ {_imsg}"); time.sleep(0.8); st.rerun()
+                            else:
+                                st.error(f"❌ {_imsg}")
 
 # ═══════════════════════════════════════════════════════
 # PAGE: แชท
