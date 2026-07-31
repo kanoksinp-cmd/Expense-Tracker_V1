@@ -726,7 +726,9 @@ def gdrive_cfg():
         if not all(g.get(k) for k in ("client_id","client_secret","refresh_token")):
             return None
         return {"client_id": g["client_id"], "client_secret": g["client_secret"],
-                "refresh_token": g["refresh_token"], "folder_id": g.get("folder_id","")}
+                "refresh_token": g["refresh_token"],
+                "folder_id": (g.get("folder_id") or "").strip(),
+                "folder_name": (g.get("folder_name") or "Trip Splitter Backups").strip()}
     except (KeyError, FileNotFoundError, AttributeError):
         return None
 
@@ -738,34 +740,88 @@ def _gd_access_token(client_id, client_secret, refresh_token):
         "client_id": client_id, "client_secret": client_secret,
         "refresh_token": refresh_token, "grant_type": "refresh_token"})
     if r.status_code != 200:
-        raise RuntimeError(f"ขอ access token ไม่สำเร็จ ({r.status_code}): {r.text[:200]}")
+        # [FIX v13] invalid_grant คือ error ที่เจอบ่อยที่สุด และข้อความดิบของ Google
+        #   ไม่บอกสาเหตุเลย — เติมคำใบ้ให้ตรงกับ 3 กรณีที่เกิดจริง
+        hint = ""
+        if "invalid_grant" in r.text:
+            hint = ("\n\nสาเหตุที่พบบ่อย:\n"
+                    "1) ยังไม่ได้รัน get_gdrive_token.py — refresh_token ใน Secrets "
+                    "ยังเป็นข้อความ placeholder อยู่\n"
+                    "2) OAuth consent screen ยังเป็น 'Testing' → token หมดอายุทุก 7 วัน "
+                    "ต้องกด Publish to Production แล้วขอ token ใหม่\n"
+                    "3) ถอนสิทธิ์แอปออกจากบัญชี Google ไปแล้ว → ขอ token ใหม่")
+        raise RuntimeError(f"ขอ access token ไม่สำเร็จ ({r.status_code}): {r.text[:200]}{hint}")
     return r.json()["access_token"]
 
 def _gd_headers(cfg):
     return {"Authorization": "Bearer " + _gd_access_token(
         cfg["client_id"], cfg["client_secret"], cfg["refresh_token"])}
 
+def _gd_folder(cfg):
+    """[FIX v14] หา/สร้างโฟลเดอร์ปลายทาง — คืน (folder_id, ข้อความอธิบาย)
+
+    ทำไมต้องมีฟังก์ชันนี้: scope ที่ขอไว้คือ drive.file ซึ่งให้สิทธิ์เฉพาะไฟล์
+    ที่ "แอปนี้สร้างเอง" เท่านั้น โฟลเดอร์ที่ผู้ใช้กดสร้างเองในหน้าเว็บ Drive
+    แอปอาจมองไม่เห็น (ได้ 404 File not found) ทางที่ชัวร์คือให้แอปสร้างโฟลเดอร์
+    ของตัวเอง แล้วค้นหาด้วยชื่อในครั้งถัด ๆ ไป
+    ถ้าผู้ใช้ระบุ folder_id มาเองก็เคารพค่านั้น (เผื่อใช้ได้) แต่ถ้าพังจะ
+    fallback มาใช้โฟลเดอร์ที่แอปสร้างแทน"""
+    if cfg["folder_id"]:
+        return cfg["folder_id"], "ใช้ folder_id ที่ตั้งไว้"
+
+    name = cfg["folder_name"].replace("'", "")
+    q = ("mimeType='application/vnd.google-apps.folder' and trashed=false "
+         f"and name='{name}'")
+    r = requests.get(GD_FILES_URL, headers=_gd_headers(cfg), timeout=60,
+                     params={"q": q, "fields": "files(id,name)", "pageSize": 1})
+    if r.status_code == 200 and r.json().get("files"):
+        return r.json()["files"][0]["id"], f"ใช้โฟลเดอร์ '{name}' ที่มีอยู่แล้ว"
+
+    r = requests.post(GD_FILES_URL, headers=_gd_headers(cfg), timeout=60,
+                      params={"fields": "id"},
+                      json={"name": name,
+                            "mimeType": "application/vnd.google-apps.folder"})
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"สร้างโฟลเดอร์ไม่สำเร็จ ({r.status_code}): {r.text[:200]}")
+    return r.json()["id"], f"สร้างโฟลเดอร์ '{name}' ใหม่ใน Drive แล้ว"
+
+
 def gdrive_upload(cfg, filename, data):
     """อัปโหลดไฟล์สำรอง — คืน (ok, ข้อความ)"""
     try:
+        fid, note = _gd_folder(cfg)
         meta = {"name": filename}
-        if cfg["folder_id"]: meta["parents"] = [cfg["folder_id"]]
+        if fid: meta["parents"] = [fid]
         r = requests.post(
             GD_UPLOAD_URL, params={"uploadType": "multipart", "fields": "id,name"},
             headers=_gd_headers(cfg), timeout=180,
             files={"metadata": ("metadata", json.dumps(meta), "application/json; charset=UTF-8"),
                    "file": (filename, data, "application/json")})
+        # [FIX v14] 404 = แอปมองไม่เห็นโฟลเดอร์นั้น (ไม่ได้สร้างเอง / id ผิด)
+        #   ลองใหม่โดยใช้โฟลเดอร์ของแอปเองแทน จะได้ไม่ต้องให้ผู้ใช้มานั่งแก้เอง
+        if r.status_code == 404 and cfg["folder_id"]:
+            cfg2 = dict(cfg, folder_id="")
+            fid2, note2 = _gd_folder(cfg2)
+            meta["parents"] = [fid2]
+            r = requests.post(
+                GD_UPLOAD_URL, params={"uploadType": "multipart", "fields": "id,name"},
+                headers=_gd_headers(cfg), timeout=180,
+                files={"metadata": ("metadata", json.dumps(meta), "application/json; charset=UTF-8"),
+                       "file": (filename, data, "application/json")})
+            note = (f"folder_id ที่ตั้งไว้ใช้ไม่ได้ (scope drive.file เห็นเฉพาะโฟลเดอร์"
+                    f"ที่แอปสร้างเอง) — {note2} แทน")
         if r.status_code not in (200, 201):
             return False, f"อัปโหลดไม่สำเร็จ ({r.status_code}): {r.text[:200]}"
-        return True, f"อัปโหลด {r.json().get('name', filename)} ขึ้น Drive แล้ว"
+        return True, f"อัปโหลด {r.json().get('name', filename)} แล้ว · {note}"
     except (requests.RequestException, RuntimeError, ValueError) as e:
         return False, str(e)
 
 def gdrive_list(cfg, limit=20):
     """รายชื่อไฟล์สำรองบน Drive ใหม่→เก่า — คืน (ok, list|ข้อความ)"""
     try:
+        # [FIX v14] ไม่กรองด้วยโฟลเดอร์ — drive.file เห็นเฉพาะไฟล์ที่แอปสร้างเองอยู่แล้ว
+        #   จึงไม่มีทางเจอไฟล์ของคนอื่น และยังหาไฟล์เก่าเจอแม้จะย้ายโฟลเดอร์ไปแล้ว
         q = "trashed=false and name contains 'trip_backup_'"
-        if cfg["folder_id"]: q = f"'{cfg['folder_id']}' in parents and {q}"
         r = requests.get(GD_FILES_URL, headers=_gd_headers(cfg), timeout=60, params={
             "q": q, "orderBy": "createdTime desc", "pageSize": limit,
             "fields": "files(id,name,size,createdTime)"})
