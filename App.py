@@ -725,8 +725,11 @@ def gdrive_cfg():
         g = st.secrets["gdrive"]
         if not all(g.get(k) for k in ("client_id","client_secret","refresh_token")):
             return None
-        return {"client_id": g["client_id"], "client_secret": g["client_secret"],
-                "refresh_token": g["refresh_token"],
+        # [FIX v15] strip ทุกช่อง — เวลา copy จาก Playground/คอนโซล มักติด
+        #   ช่องว่างหรือขึ้นบรรทัดใหม่มาด้วย ซึ่งทำให้ Google ตอบ invalid_grant
+        return {"client_id": str(g["client_id"]).strip(),
+                "client_secret": str(g["client_secret"]).strip(),
+                "refresh_token": str(g["refresh_token"]).strip(),
                 "folder_id": (g.get("folder_id") or "").strip(),
                 "folder_name": (g.get("folder_name") or "Trip Splitter Backups").strip()}
     except (KeyError, FileNotFoundError, AttributeError):
@@ -756,6 +759,55 @@ def _gd_access_token(client_id, client_secret, refresh_token):
 def _gd_headers(cfg):
     return {"Authorization": "Bearer " + _gd_access_token(
         cfg["client_id"], cfg["client_secret"], cfg["refresh_token"])}
+
+def gdrive_diagnose():
+    """[FIX v15] รายงานว่าแอปอ่านอะไรจาก Secrets ได้จริง ๆ
+    ทำเป็นฟังก์ชันแยกเพราะ invalid_grant ของ Google ไม่บอกอะไรเลยว่าผิดตรงไหน
+    ต้องเห็นค่าที่ใช้จริงก่อนถึงจะรู้ว่า client คนละตัว/token ยังเป็น placeholder"""
+    rows = []
+    try:
+        g = st.secrets["gdrive"]
+    except (KeyError, FileNotFoundError, AttributeError):
+        return [("[gdrive]", "❌", "ไม่พบหมวด [gdrive] ใน Secrets เลย")], False
+
+    cid = str(g.get("client_id", "")).strip()
+    csec = str(g.get("client_secret", "")).strip()
+    rt = str(g.get("refresh_token", "")).strip()
+
+    # client_id
+    if not cid:
+        rows.append(("client_id", "❌", "ว่าง"))
+    elif not cid.endswith(".apps.googleusercontent.com"):
+        rows.append(("client_id", "⚠️", f"รูปแบบแปลก: {cid[:40]}"))
+    else:
+        rows.append(("client_id", "✅", cid.split("-")[1][:14] + "…  (เอาไว้เทียบว่าตรงกับ client ที่ใช้ขอ token ไหม)"))
+
+    # client_secret
+    if not csec:
+        rows.append(("client_secret", "❌", "ว่าง"))
+    elif not csec.startswith("GOCSPX-"):
+        rows.append(("client_secret", "⚠️", "ปกติขึ้นต้นด้วย GOCSPX-"))
+    else:
+        rows.append(("client_secret", "✅", f"ยาว {len(csec)} ตัว"))
+
+    # refresh_token — จุดที่พลาดบ่อยที่สุด
+    ok_rt = False
+    if not rt:
+        rows.append(("refresh_token", "❌", "ว่าง"))
+    elif not rt.startswith("1//"):
+        rows.append(("refresh_token", "❌",
+                     f"ไม่ใช่ refresh token จริง (ต้องขึ้นต้นด้วย 1//) — ค่าที่ใส่ไว้ขึ้นต้นว่า {rt[:12]!r}"))
+    elif len(rt) < 40:
+        rows.append(("refresh_token", "⚠️", f"สั้นผิดปกติ ({len(rt)} ตัว) น่าจะ copy มาไม่ครบ"))
+    else:
+        rows.append(("refresh_token", "✅", f"{rt[:6]}…  ยาว {len(rt)} ตัว"))
+        ok_rt = True
+
+    rows.append(("folder_name", "ℹ️", str(g.get("folder_name") or "Trip Splitter Backups")))
+    if str(g.get("folder_id") or "").strip():
+        rows.append(("folder_id", "⚠️", "ตั้งไว้ — ถ้าโฟลเดอร์ไม่ได้ถูกสร้างโดยแอป อาจได้ 404 แล้ว fallback"))
+    return rows, ok_rt
+
 
 def _gd_folder(cfg):
     """[FIX v14] หา/สร้างโฟลเดอร์ปลายทาง — คืน (folder_id, ข้อความอธิบาย)
@@ -1450,6 +1502,26 @@ elif menu == "manage":
         st.markdown('<div class="section-head" style="margin-top:18px;">☁️ Google Drive</div>',
                     unsafe_allow_html=True)
         _gd = gdrive_cfg()
+
+        # [FIX v15] แผงตรวจสอบ — เปิดได้เสมอ ไม่ว่าจะตั้งค่าสำเร็จหรือยัง
+        with st.expander("🔍 ตรวจสอบการตั้งค่า Secrets", expanded=not _gd):
+            _rows, _rt_ok = gdrive_diagnose()
+            for _k, _icon, _v in _rows:
+                st.markdown(f"{_icon} **`{_k}`** — {esc(_v)}")
+            if not _rt_ok:
+                st.warning(
+                    "refresh_token ยังไม่ถูกต้อง — ต้องได้จาก OAuth Playground "
+                    "หรือสคริปต์ `get_gdrive_token.py` เท่านั้น (ขึ้นต้นด้วย `1//`)")
+            st.caption(
+                "⚠️ client_id ที่แสดงต้องเป็น **client ตัวเดียวกัน** กับที่ใช้ขอ refresh_token "
+                "— ขอด้วย client ตัวหนึ่งแล้วเอาอีกตัวมาใส่ จะได้ invalid_grant เสมอ")
+            if _gd and st.button("🧪 ทดสอบเชื่อมต่อ Google", use_container_width=True):
+                try:
+                    _t = _gd_access_token(_gd["client_id"], _gd["client_secret"], _gd["refresh_token"])
+                    st.success(f"✅ เชื่อมต่อได้ — ได้ access token มาแล้ว ({len(_t)} ตัวอักษร)")
+                except (requests.RequestException, RuntimeError) as _e:
+                    st.error(f"❌ {_e}")
+
         if not _gd:
             st.info("ยังไม่ได้ตั้งค่า — ดูวิธีทำใน `GOOGLE_DRIVE_SETUP.md` "
                     "แล้วใส่ค่าใน Streamlit Cloud → Settings → Secrets")
