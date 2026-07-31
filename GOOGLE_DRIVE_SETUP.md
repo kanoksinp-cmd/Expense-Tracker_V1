@@ -68,14 +68,27 @@ browser จะเปิดขึ้นมาให้กดอนุญาต �
 > ถ้าเป็น `{"web": ...}` สคริปต์จะปฏิเสธ เพราะ flow นี้ต้องใช้ loopback redirect
 > ซึ่ง client ชนิด web ต้องลงทะเบียน redirect URI ไว้ก่อน
 
-### 5. (ถ้าต้องการ) กำหนดโฟลเดอร์ปลายทาง
+### 5. (ถ้าต้องการ) ตั้งชื่อโฟลเดอร์ปลายทาง
 
-สร้างโฟลเดอร์ใน Google Drive แล้วดู URL:
+**ไม่ต้องสร้างโฟลเดอร์เองก็ได้** — แอปจะสร้างให้อัตโนมัติในครั้งแรกที่อัปโหลด
+ชื่อเริ่มต้นคือ `Trip Splitter Backups` ครั้งถัดไปจะหาโฟลเดอร์เดิมเจอเองไม่สร้างซ้ำ
 
+อยากเปลี่ยนชื่อก็ใส่ `folder_name` ใน Secrets:
+
+```toml
+folder_name = "expense-trackerv1"
 ```
-https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOp
-                                        └── นี่คือ folder_id
-```
+
+> #### ทำไมไม่แนะนำให้ใช้ folder_id ของโฟลเดอร์ที่สร้างเอง
+>
+> scope ที่ขอไว้คือ `drive.file` ซึ่งให้สิทธิ์เฉพาะไฟล์ที่ **แอปนี้สร้างเอง**
+> โฟลเดอร์ที่คุณกดสร้างเองในหน้าเว็บ Drive แอปอาจมองไม่เห็น แล้วได้ `404 File not found`
+>
+> ถ้าใส่ `folder_id` ไว้แล้วเจอ 404 แอปจะสร้างโฟลเดอร์ของตัวเองแล้วอัปโหลดลงตรงนั้นแทน
+> พร้อมบอกเหตุผลให้ทราบ ไม่พังกลางทาง
+>
+> ทางเลือกอื่นคือเปลี่ยนไปใช้ scope `drive` (เต็ม) แต่เป็น restricted scope
+> ที่ต้องผ่าน security assessment ของ Google จึงไม่คุ้มสำหรับงานนี้
 
 ### 6. ใส่ค่าใน Streamlit Secrets
 
@@ -86,8 +99,10 @@ https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOp
 client_id     = "xxxxx.apps.googleusercontent.com"
 client_secret = "GOCSPX-xxxxx"
 refresh_token = "1//xxxxx"
-folder_id     = "1AbCdEfGhIjKlMnOp"   # เว้นว่างได้ = ลงที่ root
+folder_name   = "expense-trackerv1"   # ไม่ใส่ก็ได้ = "Trip Splitter Backups"
 ```
+
+> `folder_id` ไม่จำเป็นต้องใส่ ปล่อยให้แอปจัดการโฟลเดอร์เองดีกว่า (ดูขั้นตอนที่ 5)
 
 **รันในเครื่อง** ให้สร้างไฟล์ `.streamlit/secrets.toml` เนื้อหาเดียวกัน
 และ**อย่า commit ไฟล์นี้ขึ้น git** — เพิ่ม `.streamlit/secrets.toml` ใน `.gitignore`
@@ -125,7 +140,7 @@ folder_id     = "1AbCdEfGhIjKlMnOp"   # เว้นว่างได้ = ล�
 | สคริปต์ไม่คืน `refresh_token` | เคยกดอนุญาตไปแล้ว ให้ถอนสิทธิ์ที่ https://myaccount.google.com/permissions แล้วรันใหม่ |
 | `Service Accounts do not have storage quota` | ยังใช้ service account อยู่ ต้องเปลี่ยนมาใช้ OAuth ตามคู่มือนี้ |
 | `403 insufficientPermissions` | scope ไม่ถูก ต้องเป็น `drive.file` และขอ token ใหม่ |
-| `404` ตอนอัปโหลด | `folder_id` ผิด หรือโฟลเดอร์ถูกลบ |
+| `404` ตอนอัปโหลด | โฟลเดอร์นั้นแอปมองไม่เห็น (scope `drive.file`) — ลบบรรทัด `folder_id` ออก แล้วใช้ `folder_name` แทน |
 | Token ตายเพราะไม่ได้ใช้ | refresh token ที่ไม่ถูกใช้ 6 เดือนจะหมดอายุ — สำรองข้อมูลเป็นระยะจะไม่เจอปัญหานี้ |
 | `redirect_uri_mismatch` | ใช้ไฟล์ชนิด `web` อยู่ ต้องสร้าง client ใหม่เป็น **Desktop app** |
 | สคริปต์ค้างที่ "รออนุญาต" | พอร์ต 8765 ถูกใช้อยู่ ปิดโปรแกรมที่ใช้พอร์ตนั้นแล้วรันใหม่ |
