@@ -1,0 +1,13 @@
+[client]
+# "minimal" = ซ่อน toolbar มุมขวาบนทั้งหมด ("viewer" ยังโชว์เมนู hamburger อยู่)
+toolbarMode = "minimal"
+# false = ซ่อนรายละเอียด error (ตรงกับคอมเมนต์เดิม — ของเดิมตั้ง true คือ "เปิด")
+showErrorDetails = false
+
+[server]
+enableCORS = false
+enableXsrfProtection = true
+headless = true
+
+[theme]
+base = "light"
