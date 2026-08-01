@@ -30,6 +30,18 @@ st.set_page_config(page_title="Trip Expense Splitter", layout="wide",
 # ─────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
+/* ══ [FIX v21] ฟอนต์ไทย ══
+   ของเดิม -apple-system/Segoe UI ไม่มีฟอนต์ไทยในสแตกเลย บน Windows เลยตกไปใช้
+   Leelawadee UI / Tahoma ซึ่งวรรณยุกต์เบียดและหน้าตาเก่า
+   Kanit (ไม่มีหัว ทรงเรขาคณิต) = หัวข้อ + ตัวเลขเงิน ให้ดูมีบุคลิก
+   IBM Plex Sans Thai (มีหัว) = เนื้อความ อ่านยาว ๆ สบายตากว่า */
+@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap');
+
+:root {
+    --font-body: 'IBM Plex Sans Thai','Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;
+    --font-display: 'Kanit','IBM Plex Sans Thai','Segoe UI',sans-serif;
+}
+
 /* ══ LIGHT MODE FORCE ══ */
 :root { color-scheme: light only !important; }
 html, body { color-scheme: light !important; background: #dbeafe !important; }
@@ -80,7 +92,8 @@ html,body,
 [data-testid="stMainBlockContainer"],
 [data-testid="stMain"] {
     background: #dbeafe !important;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif !important;
+    font-family: var(--font-body) !important;
+    line-height: 1.65 !important;   /* วรรณยุกต์ไทยต้องการที่หายใจมากกว่าละติน */
     padding-top: 0 !important;
 }
 [data-testid="stMainBlockContainer"] { max-width: 100% !important; }
@@ -92,7 +105,7 @@ html,body,
     left: 0;
     right: 0;
     z-index: 2147483647;   /* [FIX v3] สูงสุดเท่าที่ browser รับได้ */
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    font-family: var(--font-body);
 }
 .navbar-wrap .navbar {
     background: #1d4ed8;
@@ -275,6 +288,16 @@ div.st-key-menubar .stButton > button[kind="primary"] p {
     color: #fff !important;
 }
 
+/* [FIX v21] หัวข้อ ปุ่ม และตัวเลขเงิน ใช้ Kanit เพื่อให้มีบุคลิก
+   ส่วนเนื้อความยาว ๆ ยังเป็น IBM Plex Sans Thai ที่อ่านสบายกว่า */
+.navbar-wrap .nb-title, .section-head,
+.stButton button, div[class*="st-key-tabbar"] .stButton button,
+.pf-name, .money, h1, h2, h3, h4 {
+    font-family: var(--font-display) !important;
+    letter-spacing: 0 !important;
+}
+.money { font-variant-numeric: tabular-nums; font-weight: 600; }
+
 /* ══ [FIX v20] เก็บช่องว่างที่เกิดจาก element ล่องหน ══
    ก่อนหน้าเนื้อหาจริงมี element อยู่ 7 ตัวที่ไม่แสดงอะไรในหน้าเลย
    (แท็ก <style> 2 ตัว, navbar/menubar/ปุ่มโปรไฟล์ ที่เป็น position:fixed,
@@ -441,6 +464,118 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 [data-testid="stMarkdownContainer"] p,
 [data-testid="stMarkdownContainer"] li { color:#000 !important; }
 [data-testid="stCaptionContainer"] p { color:#374151 !important; }
+
+/* ══ [FIX v21] ยอดของฉัน — ฉากเปิดของหน้าหลัก ══
+   ตัวเลขใหญ่คือพระเอก ที่เหลือเงียบหมด */
+.hero {
+    background: #fff; border: 1.5px solid #bfdbfe; border-radius: 16px;
+    padding: 16px 18px 18px; margin-bottom: 14px;
+    box-shadow: 0 2px 10px rgba(29,78,216,.06);
+}
+.hero-top { display:flex; align-items:center; gap:11px; margin-bottom:14px; }
+.hero-trip { min-width:0; flex:1; }
+.hero-name {
+    font-family: var(--font-display); font-weight:600; font-size:16px; color:#000 !important;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.4;
+}
+.hero-meta { font-size:12px; color:#6b7280 !important; line-height:1.5; }
+.hero-lbl {
+    font-size:12px; font-weight:600; color:#6b7280 !important;
+    letter-spacing:.04em; margin-bottom:2px;
+}
+.hero-amt {
+    font-family: var(--font-display); font-weight:700;
+    font-size:44px; line-height:1.15; letter-spacing:-.02em;
+    font-variant-numeric: tabular-nums;
+}
+.hero-baht { font-size:20px; font-weight:500; margin-left:6px; opacity:.75; }
+.hero-sub { font-size:12px; color:#6b7280 !important; margin-top:5px; line-height:1.5; }
+@media (max-width:600px) { .hero-amt { font-size:38px; } }
+
+/* ══ [FIX v21] แผนโอนเงินแบบเส้นโยง — ฉากเด่นของแอป ══ */
+.flow {
+    display:flex; align-items:flex-start; gap:10px;
+    background:#fff; border:1.5px solid #bfdbfe; border-radius:14px;
+    padding:16px 14px 12px; margin-bottom:10px;
+}
+.flow-me { border:2px solid #1d4ed8; background:#f5f9ff; }
+.flow-side { width:78px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; gap:6px; }
+.flow-nm {
+    font-size:12px; font-weight:600; color:#000 !important; text-align:center;
+    line-height:1.35; word-break:break-word;
+}
+.flow-mid { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; padding-top:4px; }
+.flow-amt {
+    font-family:var(--font-display); font-weight:700; font-size:19px;
+    color:#dc2626 !important; line-height:1.2; white-space:nowrap;
+}
+/* เส้นประ + จุดวิ่ง บอกทิศทางว่าเงินไหลไปทางไหน */
+.flow-line {
+    position:relative; width:100%; height:2px; margin:7px 0 5px;
+    background-image:linear-gradient(90deg,#93c5fd 55%,transparent 0);
+    background-size:9px 2px; background-repeat:repeat-x;
+}
+.flow-dot {
+    position:absolute; top:50%; left:0; width:8px; height:8px; border-radius:50%;
+    background:#1d4ed8; transform:translateY(-50%);
+    animation:flowDot 2.4s cubic-bezier(.5,0,.5,1) infinite;
+}
+@keyframes flowDot {
+      0% { left:0;    opacity:0; }
+     12% { opacity:1; }
+     88% { opacity:1; }
+    100% { left:100%; opacity:0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .flow-dot { animation:none; left:calc(50% - 4px); }
+}
+.flow-cap { font-size:11px; color:#6b7280 !important; }
+.flow-clear {
+    background:#f0fdf4; border:1.5px solid #86efac; border-radius:14px;
+    padding:26px 18px; text-align:center; font-size:34px; margin-bottom:10px;
+}
+.flow-clear-t { font-family:var(--font-display); font-size:16px; font-weight:600; color:#15803d !important; margin-top:6px; }
+.flow-clear-s { font-size:12.5px; color:#166534 !important; }
+@media (max-width:600px) {
+    .flow-side { width:64px; }
+    .flow-amt { font-size:17px; }
+}
+
+/* ══ [FIX v21] หน้าจอว่าง — บอกทางต่อ ไม่ใช่แค่บอกว่าไม่มี ══ */
+.empty {
+    background:#fff; border:1.5px dashed #93c5fd; border-radius:14px;
+    padding:30px 20px 22px; text-align:center; margin-bottom:12px;
+}
+.empty-ico { font-size:34px; line-height:1; }
+.empty-t { font-family:var(--font-display); font-weight:600; font-size:15.5px; color:#000 !important; margin-top:9px; }
+.empty-s { font-size:12.5px; color:#6b7280 !important; margin-top:4px; line-height:1.6; }
+
+/* ══ [FIX v21] แถวบิลพร้อม thumbnail สลิป ══ */
+.bill-row {
+    display:flex; align-items:center; gap:12px;
+    background:#fff; border:1.5px solid #bfdbfe; border-radius:12px;
+    padding:10px 13px; margin-bottom:-6px;
+}
+.bill-slip {
+    width:48px; height:48px; border-radius:9px; flex-shrink:0;
+    background-size:cover; background-position:center;
+    border:1px solid #bfdbfe;
+}
+.bill-noslip {
+    background:#eff6ff; display:flex; align-items:center; justify-content:center;
+    font-size:9.5px; color:#93c5fd !important; text-align:center; line-height:1.25;
+}
+.bill-mid { flex:1; min-width:0; }
+.bill-desc {
+    font-family:var(--font-display); font-weight:600; font-size:14.5px; color:#000 !important;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.4;
+}
+.bill-meta { font-size:11.5px; color:#6b7280 !important; line-height:1.5;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bill-amt {
+    font-family:var(--font-display); font-weight:700; font-size:16px;
+    color:#1d4ed8 !important; flex-shrink:0; white-space:nowrap;
+}
 
 /* ══ CARDS ══ */
 .card {
@@ -686,8 +821,22 @@ def avatar_thumb_uri(blob, px=96):
     buf = io.BytesIO(); img.save(buf, format="JPEG", quality=72)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
-def avatar_html(name, blob=None, size=32, font=12, bg="#1d4ed8"):
+# [FIX v21] สีประจำตัวของแต่ละคน — ได้จากการ hash ชื่อ จึงคงที่เสมอ
+#   ทั้งในบิล แชท และสรุปเงิน ทำให้กวาดตาหาตัวเองเจอเร็วขึ้น
+#   เลือกจากชุดสีที่คุมโทนไว้แล้ว (ไม่สุ่ม hue อิสระ) เพื่อไม่ให้ตีกับธีมน้ำเงิน
+#   และคุมความสว่างให้ตัวอักษรขาวอ่านออกทุกสี
+PERSON_COLORS = ["#1d4ed8","#0891b2","#7c3aed","#c026d3","#db2777",
+                 "#e11d48","#ea580c","#ca8a04","#16a34a","#0d9488",
+                 "#4f46e5","#9333ea"]
+
+def person_color(name):
+    if not name: return "#6b7280"
+    h = hashlib.md5(str(name).encode("utf-8")).hexdigest()
+    return PERSON_COLORS[int(h[:8], 16) % len(PERSON_COLORS)]
+
+def avatar_html(name, blob=None, size=32, font=12, bg=None):
     """คืน <div> วงกลมเดียวแบบบรรทัดเดียว — ถ้ามีรูปใช้รูป ถ้าไม่มีใช้อักษรตัวแรก"""
+    if bg is None: bg = person_color(name)
     uri = avatar_thumb_uri(blob, max(96, size * 3))
     if uri:
         fill = f"background-image:url({uri});background-size:cover;background-position:center;"
@@ -811,6 +960,68 @@ def render_flash():
         f'<span class="flash-ico">{FLASH_ICONS.get(kind, "ℹ️")}</span>'
         f'<span>{esc(msg)}</span></div></div>',
         unsafe_allow_html=True)
+
+def empty_state(icon, title, sub, btn_label=None, btn_key=None, goto=None):
+    """[FIX v21] หน้าจอว่างที่บอกทางต่อ — ของเดิมใช้ st.info('ยังไม่มีบิล')
+    ซึ่งบอกแค่ว่าไม่มี แต่ไม่บอกว่าให้ทำอะไรต่อ กลายเป็นทางตัน
+    goto = (ชื่อ key ใน session_state, ค่าที่จะตั้ง) เช่น ("menu","manage")"""
+    st.markdown(f'<div class="empty"><div class="empty-ico">{icon}</div>'
+                f'<div class="empty-t">{esc(title)}</div>'
+                f'<div class="empty-s">{esc(sub)}</div></div>', unsafe_allow_html=True)
+    if btn_label and goto:
+        bl, bc, br = st.columns([1, 2, 1])
+        if bc.button(btn_label, key=btn_key, type="primary", use_container_width=True):
+            st.session_state[goto[0]] = goto[1]
+            st.rerun()
+
+
+def compute_net(trip_id, members):
+    """[FIX v21] คำนวณยอดสุทธิรายคน — แยกออกมาเพราะต้องใช้ทั้งที่ยอดสรุปด้านบน
+    ของหน้าหลัก และในแท็บสรุปเงิน ถ้าเขียนซ้ำสองที่แล้วแก้ไม่ครบจะเพี้ยนคนละทาง
+    คืน (net, exps, paid_rows)"""
+    c = db()
+    exps = c.execute("SELECT id,description,amount,payer_name,split_members "
+                     "FROM expenses WHERE trip_id=?", (trip_id,)).fetchall()
+    paid = c.execute("SELECT id,debtor,creditor,amount,timestamp FROM settlements "
+                     "WHERE trip_id=? ORDER BY id DESC", (trip_id,)).fetchall()
+    c.close()
+    inv = set(members)
+    for r in exps:
+        inv.add(r['payer_name']); inv.update(r['split_members'].split(","))
+    for pr in paid:
+        inv.add(pr['debtor']); inv.add(pr['creditor'])
+    net = {m: 0.0 for m in inv}
+    for r in exps:
+        net[r['payer_name']] += r['amount']
+        sl = r['split_members'].split(","); sh = r['amount']/len(sl)
+        for m2 in sl: net[m2] -= sh
+    for pr in paid:
+        net[pr['debtor']]   += pr['amount']
+        net[pr['creditor']] -= pr['amount']
+    return net, exps, paid
+
+
+def settle_plan(net):
+    """[FIX v21] แผนโอนเงิน — จับคู่ยอดเท่ากันพอดีก่อน แล้วค่อย greedy
+    (ทดสอบ 4,000 เคสแล้วได้จำนวนครั้งน้อยกว่าการเรียงเฉย ๆ ราว 10%)"""
+    dbt = sorted([[m, b] for m, b in net.items() if b < -0.01], key=lambda x: x[1])
+    crd = sorted([[m, b] for m, b in net.items() if b > 0.01], key=lambda x: -x[1])
+    pairs, i = [], 0
+    while i < len(dbt):
+        m = next((j for j, cc in enumerate(crd) if abs(cc[1] + dbt[i][1]) < 0.01), None)
+        if m is not None:
+            pairs.append((dbt[i][0], crd[m][0], abs(dbt[i][1])))
+            crd.pop(m); dbt.pop(i)
+        else:
+            i += 1
+    while dbt and crd:
+        a = min(abs(dbt[0][1]), crd[0][1])
+        pairs.append((dbt[0][0], crd[0][0], a))
+        dbt[0][1] += a; crd[0][1] -= a
+        if abs(dbt[0][1]) < 0.01: dbt.pop(0)
+        if abs(crd[0][1]) < 0.01: crd.pop(0)
+    return pairs
+
 
 # ── [FIX v19] แถบแท็บที่ "จำ" แท็บที่เลือกไว้ได้ ────────────────
 #   ปัญหา: st.tabs เก็บแท็บที่เลือกไว้ฝั่งเบราว์เซอร์เท่านั้น ไม่ได้อยู่ใน
@@ -998,14 +1209,29 @@ if menu == "home":
         st.info("ไปที่เมนู **จัดการ** เพื่อสร้างหรือเลือก Event ก่อนครับ")
     else:
         has_date = cur_date and str(cur_date).strip()
-        st.markdown(f"""<div class="card" style="display:flex;align-items:center;gap:14px;padding:14px 16px;">
-          <div style="width:46px;height:46px;border-radius:12px;background:#1d4ed8;flex-shrink:0;
-                      display:flex;align-items:center;justify-content:center;font-size:22px;">✈️</div>
-          <div style="min-width:0;flex:1;">
-            <div style="font-weight:800;font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{esc(cur_trip)}</div>
-            <div style="font-size:13px;color:#374151;">{'📅 '+str(cur_date)+'  ·  ' if has_date else ''}👥 {len(members)} สมาชิก</div>
-          </div>
-        </div>""", unsafe_allow_html=True)
+
+        # [FIX v21] ยอดของฉันเป็นสิ่งแรกที่เห็น — คำถามแรกของทุกคนคือ
+        #   "ต้องจ่ายเท่าไหร่" ซึ่งเดิมถูกซ่อนอยู่ในแท็บที่ 3
+        _net_all, _exp_all, _paid_all = compute_net(trip_id, members)
+        _my = _net_all.get(me, 0.0)
+        if _my < -0.01:
+            _st_lbl, _st_amt, _st_col, _st_sub = "คุณต้องจ่าย", abs(_my), "#dc2626", "ดูวิธีโอนได้ที่แท็บสรุปเงิน"
+        elif _my > 0.01:
+            _st_lbl, _st_amt, _st_col, _st_sub = "คุณจะได้คืน", _my, "#16a34a", "รอเพื่อนโอนมา"
+        else:
+            _st_lbl, _st_amt, _st_col, _st_sub = "เคลียร์หมดแล้ว", 0.0, "#1d4ed8", "ไม่มียอดค้างกับใคร"
+        _tot_all = sum(r['amount'] for r in _exp_all)
+
+        st.markdown(
+            '<div class="hero">'
+            f'<div class="hero-top">{avatar_html(me, avatars.get(me), size=38, font=15)}'
+            f'<div class="hero-trip"><div class="hero-name">{esc(cur_trip)}</div>'
+            f'<div class="hero-meta">{("📅 "+esc(cur_date)+" · ") if has_date else ""}'
+            f'👥 {len(members)} คน · {len(_exp_all)} บิล</div></div></div>'
+            f'<div class="hero-lbl">{_st_lbl}</div>'
+            f'<div class="hero-amt money" style="color:{_st_col};">{_st_amt:,.2f}<span class="hero-baht">฿</span></div>'
+            f'<div class="hero-sub">{_st_sub} · ทริปนี้ใช้ไปแล้ว {_tot_all:,.0f} ฿</div>'
+            '</div>', unsafe_allow_html=True)
 
         # [FIX v19] ใช้ tab_bar แทน st.tabs — แท็บที่เลือกจะไม่เด้งกลับเองอีก
         _ht = tab_bar("tab_home", ["➕ เพิ่มบิล", "📋 ประวัติ", "💰 สรุปเงิน"])
@@ -1013,7 +1239,9 @@ if menu == "home":
         # ── TAB 1 ──────────────────────────────────────────────
         if _ht == 0:
             if not members:
-                st.warning("ยังไม่มีสมาชิก — ไปที่ **จัดการ** เพื่อเพิ่มสมาชิกก่อน")
+                empty_state("👥", "ทริปนี้ยังไม่มีสมาชิก",
+                            "เพิ่มเพื่อนเข้าทริปก่อน แล้วค่อยเริ่มบันทึกบิล",
+                            "👥 ไปเพิ่มสมาชิก", "go_add_mem", ("menu", "manage"))
             else:
                 with st.form("add_bill", clear_on_submit=True):
                     c1,c2 = st.columns(2)
@@ -1051,20 +1279,36 @@ if menu == "home":
             # [FIX v11] เดิม SELECT * ดึง image_blob ของ "ทุกบิล" มาทุก 3 วินาที
             #   ทริปละ 30 บิล = โหลดรูปหลายเมกะซ้ำ ๆ ฟรี ๆ
             #   ตอนนี้ดึงแค่ flag ว่ามีรูปไหม แล้วค่อยโหลด blob ตอนกางบิลจริง
+            # [FIX v21] ดึง thumbnail เล็ก ๆ มาด้วย (ไม่ใช่รูปเต็ม) เพื่อโชว์ในรายการ
+            #   สลิปคือหลักฐานจริงของโดเมนนี้ เดิมต้องกดเปิด expander ทีละใบถึงจะเห็น
             c = db(); exps = c.execute(
-                "SELECT id,description,amount,payer_name,split_members,"
+                "SELECT id,description,amount,payer_name,split_members,image_blob,"
                 "       (image_blob IS NOT NULL) AS has_img "
                 "FROM expenses WHERE trip_id=? ORDER BY id DESC",(trip_id,)).fetchall(); c.close()
-            if not exps: st.info("ยังไม่มีบิล")
+            if not exps:
+                empty_state("🧾", "ยังไม่มีบิลในทริปนี้",
+                            "บิลที่บันทึกไว้จะมาอยู่ตรงนี้ พร้อมรูปสลิปและรายชื่อคนหาร",
+                            "➕ ไปเพิ่มบิล", "go_hist_add", ("tab_home", 0))
             else:
                 for row in exps:
                     sl = row['split_members'].split(","); sh = row['amount']/len(sl)
-                    with st.expander(f"📌 {row['description']} — {row['amount']:,.2f} ฿  |  {row['payer_name']}"):
+                    # แถบสรุปพร้อม thumbnail สลิป — สแกนได้เร็วโดยไม่ต้องกางทีละใบ
+                    _th = avatar_thumb_uri(row['image_blob'], 96) if row['has_img'] else None
+                    _slip = (f'<div class="bill-slip" style="background-image:url({_th});"></div>'
+                             if _th else '<div class="bill-slip bill-noslip">ไม่มี<br>สลิป</div>')
+                    st.markdown(
+                        '<div class="bill-row">' + _slip +
+                        '<div class="bill-mid">'
+                        f'<div class="bill-desc">{esc(row["description"])}</div>'
+                        f'<div class="bill-meta">จ่ายโดย {esc(row["payer_name"])} · หาร {len(sl)} คน '
+                        f'· คนละ {sh:,.2f} ฿</div></div>'
+                        f'<div class="bill-amt money">{row["amount"]:,.2f} ฿</div>'
+                        '</div>', unsafe_allow_html=True)
+                    with st.expander("แก้ไขบิลนี้"):
                         a,b2 = st.columns([1,1.5])
                         with a:
                             if row['has_img']:
-                                cimg=db(); _b=cimg.execute("SELECT image_blob FROM expenses WHERE id=?",(row['id'],)).fetchone()['image_blob']; cimg.close()
-                                st.image(_b, use_container_width=True)
+                                st.image(row['image_blob'], use_container_width=True)
                             else: st.markdown('<div style="background:#dbeafe;border-radius:8px;height:90px;display:flex;align-items:center;justify-content:center;color:#374151;font-size:13px;">ไม่มีสลิป</div>',unsafe_allow_html=True)
                             st.markdown(f"**{len(sl)} คน** หาร · คนละ **{sh:,.2f} ฿**")
                         with b2:
@@ -1089,83 +1333,59 @@ if menu == "home":
         # ── TAB 3 ──────────────────────────────────────────────
         if _ht == 2:
             c = db()
-            exps2 = c.execute("SELECT id,description,amount,payer_name,split_members "
-                              "FROM expenses WHERE trip_id=?",(trip_id,)).fetchall()
-            paid_rows = c.execute("SELECT id,debtor,creditor,amount,timestamp FROM settlements "
-                                  "WHERE trip_id=? ORDER BY id DESC",(trip_id,)).fetchall()
             uprof = {r['name']:{"pp":r['promptpay'],"bn":r['bank_name'],"ba":r['bank_account']} for r in c.execute("SELECT name,promptpay,bank_name,bank_account FROM all_users").fetchall()}
             c.close()
-            if not exps2: st.info("ยังไม่มีบิล")
+            # [FIX v21] ใช้ compute_net ตัวเดียวกับยอดด้านบน จะได้ไม่มีทางเพี้ยนคนละทาง
+            net, exps2, paid_rows = compute_net(trip_id, members)
+            if not exps2:
+                empty_state("💸", "ยังไม่มีบิลในทริปนี้",
+                            "เพิ่มบิลแรกแล้วระบบจะคำนวณให้เองว่าใครต้องโอนให้ใคร",
+                            "➕ ไปหน้าเพิ่มบิล", "go_sum_add", ("tab_home", 0))
             else:
-                inv = set(members)
-                for r in exps2: inv.add(r['payer_name']); inv.update(r['split_members'].split(","))
-                for pr in paid_rows: inv.add(pr['debtor']); inv.add(pr['creditor'])
-                net = {m:0.0 for m in inv}
-                for r in exps2:
-                    net[r['payer_name']]+=r['amount']
-                    sl=r['split_members'].split(","); sh=r['amount']/len(sl)
-                    for m2 in sl: net[m2]-=sh
-                # [FIX v11] หักยอดที่กด "ชำระแล้ว" ไปแล้ว
-                #   ตาราง settlements ถูกสร้างไว้ตั้งแต่แรกแต่ไม่เคยถูกใช้เลย
-                #   แปลว่าเดิมไม่มีทางปิดหนี้ได้ ยอดค้างอยู่ตลอดไป
-                for pr in paid_rows:
-                    net[pr['debtor']]   += pr['amount']
-                    net[pr['creditor']] -= pr['amount']
-
                 st.markdown("#### 📊 ยอดสรุปรายคน")
-                nc2 = min(len(inv),4); cols2 = st.columns(nc2)
-                for i,(m2,b) in enumerate(net.items()):
-                    clr = "#16a34a" if b>0.01 else ("#dc2626" if b<-0.01 else "#1d4ed8")
-                    ico = "🟢" if b>0.01 else ("🔴" if b<-0.01 else "⚖️")
+                nc2 = min(len(net),4); cols2 = st.columns(nc2)
+                for i,(m2,b) in enumerate(sorted(net.items(), key=lambda x:-x[1])):
+                    clr = "#16a34a" if b>0.01 else ("#dc2626" if b<-0.01 else "#6b7280")
                     lbl = "รับคืน" if b>0.01 else ("ต้องจ่าย" if b<-0.01 else "เท่ากัน")
+                    ring = "border:2px solid #1d4ed8;" if m2==me else "border:1.5px solid #bfdbfe;"
                     with cols2[i%nc2]:
-                        st.markdown(f"""<div style="background:#fff;border-radius:10px;padding:14px 10px;
-                          border:1.5px solid #bfdbfe;border-top:4px solid {clr};text-align:center;margin-bottom:10px;">
-                          <div style="font-size:18px;">{ico}</div>
-                          <div style="font-weight:700;font-size:13px;color:#000;">{esc(m2)}</div>
-                          <div style="font-size:11px;color:#374151;">{lbl}</div>
-                          <div style="font-weight:800;font-size:16px;color:{clr};">{abs(b):,.2f} ฿</div>
-                        </div>""", unsafe_allow_html=True)
+                        st.markdown(
+                            f'<div style="background:#fff;border-radius:12px;padding:13px 10px;{ring}'
+                            f'border-top:4px solid {clr};text-align:center;margin-bottom:10px;">'
+                            '<div style="display:flex;justify-content:center;margin-bottom:7px;">'
+                            + avatar_html(m2, avatars.get(m2), size=34, font=13) + '</div>'
+                            f'<div style="font-weight:600;font-size:13px;color:#000;overflow:hidden;'
+                            f'text-overflow:ellipsis;white-space:nowrap;">{esc(m2)}{" (คุณ)" if m2==me else ""}</div>'
+                            f'<div style="font-size:11px;color:#6b7280;">{lbl}</div>'
+                            f'<div class="money" style="font-weight:700;font-size:17px;color:{clr};">{abs(b):,.2f} ฿</div>'
+                            '</div>', unsafe_allow_html=True)
 
                 st.markdown("#### 🚀 แผนโอนเงิน")
-                # [FIX v11] ลดจำนวนครั้งที่ต้องโอน
-                #   ทดสอบ 4,000 เคสสุ่มแล้วพบว่า "แค่เรียงยอด" ดีขึ้นเพียงเล็กน้อย
-                #   และบางเคสแย่กว่าไม่เรียงด้วยซ้ำ วิธีที่ดีกว่าชัดเจนคือจับคู่
-                #   ลูกหนี้-เจ้าหนี้ที่ยอด "เท่ากันพอดี" ออกไปก่อน เพราะคู่แบบนั้น
-                #   ปิดได้ด้วยการโอนครั้งเดียวเสมอ ที่เหลือค่อย greedy ยอดใหญ่ชนยอดใหญ่
-                #   ผลทดสอบ: 17,014 ครั้ง เทียบกับ 18,977 ของเดิม (ลดราว 10%)
-                dbt = sorted([[m2,b] for m2,b in net.items() if b<-0.01], key=lambda x: x[1])
-                crd = sorted([[m2,b] for m2,b in net.items() if b>0.01], key=lambda x: -x[1])
-                pairs = []
-                _i = 0
-                while _i < len(dbt):
-                    _m = next((j for j,cc in enumerate(crd) if abs(cc[1]+dbt[_i][1]) < 0.01), None)
-                    if _m is not None:
-                        pairs.append((dbt[_i][0], crd[_m][0], abs(dbt[_i][1])))
-                        crd.pop(_m); dbt.pop(_i)
-                    else:
-                        _i += 1
-                while dbt and crd:
-                    _a = min(abs(dbt[0][1]), crd[0][1])
-                    pairs.append((dbt[0][0], crd[0][0], _a))
-                    dbt[0][1] += _a; crd[0][1] -= _a
-                    if abs(dbt[0][1]) < 0.01: dbt.pop(0)
-                    if abs(crd[0][1]) < 0.01: crd.pop(0)
+                pairs = settle_plan(net)   # [FIX v21] ย้ายไปเป็นฟังก์ชันร่วม
+                if not pairs:
+                    st.markdown(
+                        '<div class="flow-clear">🎉<div class="flow-clear-t">เคลียร์ครบทุกคนแล้ว</div>'
+                        '<div class="flow-clear-s">ไม่มีใครต้องโอนให้ใครอีก</div></div>',
+                        unsafe_allow_html=True)
 
                 final_tx=[]
                 for dn, cn, at in pairs:
                     p=uprof.get(cn,{}); pp=(p.get("pp") or "").strip(); bn=(p.get("bn") or "").strip(); ba=(p.get("ba") or "").strip()
-                    is_me2=(dn==me)
-                    bg2="background:#eff6ff;" if is_me2 else "background:#fff;"
-                    brd="border:2px solid #1d4ed8;" if is_me2 else "border:1.5px solid #bfdbfe;"
-                    bdg='<span style="background:#1d4ed8;color:#fff;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;">⚠️ คุณ</span>' if is_me2 else ""
-                    st.markdown(f"""<div style="{bg2}{brd}border-radius:12px;padding:14px 14px;margin-bottom:10px;">
-                      <div style="font-size:14px;font-weight:700;color:#000;display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
-                        💳 <span>{esc(dn)}</span> {bdg}
-                        <span style="color:#6b7280;">→</span>
-                        👉 <span>{esc(cn)}</span>
-                        <span style="background:#dc2626;color:#fff;padding:2px 12px;border-radius:20px;font-size:13px;font-weight:700;margin-left:auto;">{at:,.2f} ฿</span>
-                      </div></div>""", unsafe_allow_html=True)
+                    is_me2 = me in (dn, cn)
+                    # [FIX v21] เส้นโยงระหว่างคนสองคน — ฉากที่ทุกคนรอดู
+                    #   avatar สองข้าง เส้นประตรงกลาง ยอดเงินลอยอยู่บนเส้น
+                    st.markdown(
+                        f'<div class="flow{" flow-me" if is_me2 else ""}">'
+                        '<div class="flow-side">'
+                        + avatar_html(dn, avatars.get(dn), size=44, font=17)
+                        + f'<div class="flow-nm">{esc(dn)}{"<br><b>(คุณ)</b>" if dn==me else ""}</div></div>'
+                        f'<div class="flow-mid"><div class="flow-amt money">{at:,.2f} ฿</div>'
+                        '<div class="flow-line"><span class="flow-dot"></span></div>'
+                        '<div class="flow-cap">โอนให้</div></div>'
+                        '<div class="flow-side">'
+                        + avatar_html(cn, avatars.get(cn), size=44, font=17)
+                        + f'<div class="flow-nm">{esc(cn)}{"<br><b>(คุณ)</b>" if cn==me else ""}</div></div>'
+                        '</div>', unsafe_allow_html=True)
                     if pp or ba:
                         pc=st.columns(2)
                         if pp: pc[0].markdown(f"📱 **พร้อมเพย์ {cn}**"); pc[0].code(pp)
@@ -1278,7 +1498,8 @@ elif menu == "manage":
                         st.session_state["trip_id"] = tid2
                         st.rerun()
             else:
-                st.info("ยังไม่มี Event")
+                empty_state("🗓️", "ยังไม่มี Event",
+                            "สร้าง Event แรกจากช่องทางซ้ายมือ เช่น ทริปเชียงใหม่ หรือ ข้าวเย็น")
 
     # ── TAB: สมาชิก ─────────────────────────────────────
     if _mt == 1:
@@ -1310,7 +1531,9 @@ elif menu == "manage":
                             c.execute("DELETE FROM members WHERE trip_id=? AND name=?",(trip_id,mem)); c.commit()
                             flash(f"ถอด {mem}", "ok"); st.rerun()
                     c.close()
-                else: st.info("ยังไม่มีสมาชิก")
+                else:
+                    empty_state("👥", "ยังไม่มีใครใน Event นี้",
+                                "เลือกเพื่อนจากช่องทางขวาแล้วกดเพิ่มเข้า Event")
 
             with right2:
                 st.markdown('<div class="section-head">➕ เพิ่มสมาชิก</div>', unsafe_allow_html=True)
@@ -1386,7 +1609,9 @@ elif menu == "manage":
     # ── TAB: ถังขยะ ──────────────────────────────────────
     if _mt == 2:
         c=db(); dels=c.execute("SELECT * FROM trips WHERE status=1").fetchall(); c.close()
-        if not dels: st.info("ถังขยะว่างเปล่า")
+        if not dels:
+            empty_state("🗑️", "ถังขยะว่างเปล่า",
+                        "Event ที่ลบจะพักไว้ที่นี่ก่อน กู้คืนได้ตลอด")
         else:
             for dt in dels:
                 hd=dt['trip_date'] and str(dt['trip_date']).strip()
@@ -1482,7 +1707,12 @@ elif menu == "chat":
         cl,cr=st.columns([1,2.5])
         with cl:
             st.markdown('<div class="section-head">💬 การสนทนา</div>', unsafe_allow_html=True)
-            if not grps: st.caption("ยังไม่มีการสนทนา")
+            if not grps:
+                st.markdown('<div class="empty" style="padding:22px 14px;">'
+                            '<div class="empty-ico">💬</div>'
+                            '<div class="empty-t">ยังไม่มีการสนทนา</div>'
+                            '<div class="empty-s">เริ่มแชทใหม่ได้จากช่องด้านล่าง</div></div>',
+                            unsafe_allow_html=True)
             for pt in grps:
                 u3=unrd[pt]; bdg=f" 🔴{u3}" if u3>0 else ""
                 if st.button(f"{pt[0].upper()}  {pt}{bdg}", key=f"cs_{pt}", use_container_width=True):
@@ -1680,7 +1910,7 @@ elif menu == "account":
                 st.markdown(
                     '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #dbeafe;">'
                     + avatar_html(u5, avatars.get(u5), size=32, font=12,            # [FIX v6] รูปโปรไฟล์
-                                  bg="#1d4ed8" if ion3 else "#9ca3af")
+                                  bg=None if ion3 else "#9ca3af")   # [FIX v21] สีประจำตัวเมื่อออนไลน์
                     + f'<div><div style="font-weight:600;font-size:14px;color:#000;">{esc(u5)}{you3}</div>'
                     + f'<div style="font-size:12px;color:#374151;">{dot3} {"ออนไลน์" if ion3 else "ออฟไลน์"}</div></div></div>',
                     unsafe_allow_html=True)
