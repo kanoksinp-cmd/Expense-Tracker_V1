@@ -1516,11 +1516,30 @@ elif menu == "manage":
                 "⚠️ client_id ที่แสดงต้องเป็น **client ตัวเดียวกัน** กับที่ใช้ขอ refresh_token "
                 "— ขอด้วย client ตัวหนึ่งแล้วเอาอีกตัวมาใส่ จะได้ invalid_grant เสมอ")
             if _gd and st.button("🧪 ทดสอบเชื่อมต่อ Google", use_container_width=True):
+                # [FIX v15] ยิงตรงไม่ผ่าน _gd_access_token เพราะตัวนั้นถูก cache
+                #   ผลเก่าจะถูกส่งกลับมาแทนที่จะลองใหม่จริง ๆ และเราอยากได้
+                #   error_description ดิบจาก Google ซึ่งบอกสาเหตุละเอียดกว่า
                 try:
-                    _t = _gd_access_token(_gd["client_id"], _gd["client_secret"], _gd["refresh_token"])
-                    st.success(f"✅ เชื่อมต่อได้ — ได้ access token มาแล้ว ({len(_t)} ตัวอักษร)")
-                except (requests.RequestException, RuntimeError) as _e:
-                    st.error(f"❌ {_e}")
+                    _r = requests.post(GD_TOKEN_URL, timeout=20, data={
+                        "client_id": _gd["client_id"], "client_secret": _gd["client_secret"],
+                        "refresh_token": _gd["refresh_token"], "grant_type": "refresh_token"})
+                    if _r.status_code == 200:
+                        st.success("✅ เชื่อมต่อได้ — พร้อมใช้งาน กดอัปโหลดได้เลย")
+                    else:
+                        try: _j = _r.json()
+                        except ValueError: _j = {}
+                        st.error(f"❌ {_j.get('error', _r.status_code)}: "
+                                 f"{_j.get('error_description') or _r.text[:150]}")
+                        if _j.get("error") == "invalid_grant":
+                            st.markdown(
+                                "**invalid_grant แปลว่า Google ปฏิเสธ refresh_token นี้** สาเหตุที่เป็นไปได้:\n"
+                                "1. `refresh_token` ยังเป็นข้อความ placeholder (ต้องขึ้นต้นด้วย `1//`)\n"
+                                "2. ขอ token ด้วย client คนละตัวกับที่ใส่ใน Secrets\n"
+                                "3. OAuth consent screen ยังเป็น **Testing** → token ตายใน 7 วัน\n"
+                                "4. ใช้ credential กลางของ Playground (ลืมติ๊ก *Use your own OAuth credentials*) → ตายใน 24 ชม.\n"
+                                "5. ถอนสิทธิ์แอปออกจากบัญชี Google ไปแล้ว")
+                except requests.RequestException as _e:
+                    st.error(f"❌ ต่อเน็ตไม่ได้: {_e}")
 
         if not _gd:
             st.info("ยังไม่ได้ตั้งค่า — ดูวิธีทำใน `GOOGLE_DRIVE_SETUP.md` "
@@ -1537,6 +1556,7 @@ elif menu == "manage":
             with gc2:
                 if st.button("🔄 โหลดรายการไฟล์บน Drive", use_container_width=True):
                     st.session_state["gd_files"] = gdrive_list(_gd)
+
 
             _res = st.session_state.get("gd_files")
             if _res:
@@ -1761,6 +1781,18 @@ elif menu == "account":
                         st.info("ยังไม่ได้ตั้งรูปโปรไฟล์ — อัปโหลดได้ที่ **👤 แก้ไขโปรไฟล์** ด้านล่าง")
 
             c=db(); md=c.execute("SELECT * FROM all_users WHERE name=?",(me,)).fetchone(); c.close()
+            # [FIX v15] กันหน้าพังเมื่อ session ชี้ไปยังผู้ใช้ที่ไม่มีใน DB แล้ว
+            #   เกิดได้จริงเมื่อฐานข้อมูลถูกรีเซ็ต (Streamlit Cloud reboot) หรือ
+            #   กู้คืนข้อมูลทับ ขณะที่เบราว์เซอร์ยังถือ session เดิมอยู่
+            #   ของเดิม md เป็น None แล้วไปเรียก md['promptpay'] → ทั้งหน้าล่ม
+            if md is None:
+                st.warning("ไม่พบบัญชีนี้ในระบบแล้ว (ข้อมูลอาจถูกรีเซ็ตหรือกู้คืนทับ) "
+                           "กรุณาเข้าสู่ระบบใหม่")
+                if st.button("🚪 ออกจากระบบ", type="primary"):
+                    st.session_state["me"] = None
+                    st.session_state["backup_unlocked"] = False
+                    st.rerun()
+                st.stop()
 
             # ── [FIX v6] แก้ชื่อ + รูปโปรไฟล์ ──────────────────
             st.markdown('<div class="section-head">👤 แก้ไขโปรไฟล์</div>', unsafe_allow_html=True)
