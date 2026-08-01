@@ -7,7 +7,6 @@ from PIL import Image
 import time
 import urllib.parse
 import base64
-import requests
 import html
 import hashlib
 import secrets as pysecrets
@@ -415,6 +414,43 @@ div.st-key-menubar .stButton > button[kind="primary"] p {
     border-radius:10px; padding:1px 7px; font-size:11px; font-weight:700; margin-left:4px;
 }
 
+/* ══ [FIX v17] ป๊อปอัพแจ้งเตือนกลางจอ — โชว์ 3 วิแล้วจางหายเอง ══
+   ใช้ CSS animation ทำการหายไป ไม่ใช้ JS timer เพราะหน้าจอ rerun ทุก 3 วิ
+   (st_autorefresh) ซึ่งจะล้าง timer ของ JS ทิ้งทุกครั้ง
+   pointer-events:none เพื่อให้กดทะลุผ่านได้ ไม่บังปุ่มข้างหลัง */
+.flash-wrap {
+    position: fixed; inset: 0; z-index: 2147483647;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+}
+.flash-box {
+    display: flex; align-items: center; gap: 12px;
+    min-width: 230px; max-width: 80vw;
+    padding: 18px 26px;
+    border-radius: 14px;
+    background: #1e3a8a;
+    color: #fff !important;
+    font-size: 16px; font-weight: 700; line-height: 1.45;
+    text-align: left;
+    box-shadow: 0 12px 40px rgba(0,0,0,.35);
+    animation: flashPop 3s cubic-bezier(.22,1,.36,1) forwards;
+}
+.flash-box * { color: #fff !important; }
+.flash-box .flash-ico { font-size: 24px; flex-shrink: 0; line-height: 1; }
+.flash-ok   { background: #16a34a; }
+.flash-err  { background: #dc2626; }
+.flash-warn { background: #b45309; }
+.flash-info { background: #1d4ed8; }
+@keyframes flashPop {
+      0% { opacity: 0; transform: translateY(14px) scale(.92); }
+      7% { opacity: 1; transform: translateY(0)    scale(1);   }
+     78% { opacity: 1; transform: translateY(0)    scale(1);   }
+    100% { opacity: 0; transform: translateY(-8px) scale(.97); visibility: hidden; }
+}
+@media (max-width:600px) {
+    .flash-box { min-width: 0; padding: 15px 20px; font-size: 15px; }
+}
+
 /* ══ SCROLLBAR ══ */
 ::-webkit-scrollbar { width:4px; height:4px; }
 ::-webkit-scrollbar-track { background:#dbeafe; }
@@ -667,200 +703,37 @@ def import_backup(raw, wipe=True):
     c.close()
     return True, "กู้คืนข้อมูลเรียบร้อย"
 
-# ── [FIX v12] สำรองขึ้น Google Drive ──────────────────────────
-#   ใช้ OAuth refresh token ของเจ้าของ Drive (ไม่ใช่ service account)
-#   เหตุผล: service account ไม่มี storage quota ของตัวเอง อัปโหลดเข้าโฟลเดอร์
-#   ที่แชร์ใน My Drive จะได้ error "Service Accounts do not have storage quota"
-#   ทางแก้ที่ Google บอกคือใช้ Shared Drive (ต้องมี Workspace เสียเงิน)
-#   หรือ OAuth delegation — สำหรับ Gmail ธรรมดาจึงเหลือทางเดียวคือ OAuth
-#
-#   ⚠️ สำคัญ: ที่ Google Cloud Console ต้องกด "Publish to Production"
-#   ถ้าปล่อยเป็น "Testing" refresh token จะหมดอายุทุก 7 วัน
-#
-#   ตั้งค่าใน .streamlit/secrets.toml :
-#     [gdrive]
-#     client_id     = "xxx.apps.googleusercontent.com"
-#     client_secret = "xxx"
-#     refresh_token = "1//xxx"
-#     folder_id     = "1AbC..."   # ไม่ใส่ก็ได้ = ลงที่ root ของ Drive
-GD_TOKEN_URL  = "https://oauth2.googleapis.com/token"
-GD_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files"
-GD_FILES_URL  = "https://www.googleapis.com/drive/v3/files"
+# ── [FIX v17] ป๊อปอัพแจ้งเตือนกลางจอ ──────────────────────────
+#   แทน st.toast / st.success ที่อยู่มุมจอและหายเร็วเกินจะทันอ่าน
+#   เก็บข้อความไว้ใน session_state พร้อมเวลาที่ตั้ง แล้ววาดใหม่ทุก rerun
+#   จนกว่าจะครบ 3 วินาที — จำเป็นเพราะ st_autorefresh สั่ง rerun ทุก 3 วิ
+#   ถ้าวาดครั้งเดียวแล้วลบทิ้ง ข้อความจะหายกลางคันเมื่อ rerun มาถึงก่อนเวลา
+FLASH_SECONDS = 3.0
+FLASH_ICONS = {"ok": "✅", "err": "❌", "warn": "⚠️", "info": "ℹ️"}
 
-def gdrive_cfg():
-    """คืน dict ค่าตั้งค่า หรือ None ถ้ายังไม่ได้ตั้ง secrets"""
-    try:
-        g = st.secrets["gdrive"]
-        if not all(g.get(k) for k in ("client_id","client_secret","refresh_token")):
-            return None
-        # [FIX v15] strip ทุกช่อง — เวลา copy จาก Playground/คอนโซล มักติด
-        #   ช่องว่างหรือขึ้นบรรทัดใหม่มาด้วย ซึ่งทำให้ Google ตอบ invalid_grant
-        return {"client_id": str(g["client_id"]).strip(),
-                "client_secret": str(g["client_secret"]).strip(),
-                "refresh_token": str(g["refresh_token"]).strip(),
-                "folder_id": (g.get("folder_id") or "").strip(),
-                "folder_name": (g.get("folder_name") or "Trip Splitter Backups").strip()}
-    except (KeyError, FileNotFoundError, AttributeError):
-        return None
+def flash(msg, kind="ok"):
+    """ตั้งข้อความให้เด้งกลางจอ — เรียกก่อน st.rerun() ได้เลย ไม่ต้อง time.sleep"""
+    st.session_state["flash"] = (str(msg), kind, time.time())
 
-@st.cache_data(ttl=2700, show_spinner=False)
-def _gd_access_token(client_id, client_secret, refresh_token):
-    """access token อายุ 1 ชม. — แคชไว้ 45 นาที ไม่งั้นจะยิงขอใหม่ทุก 3 วิ
-    ตามรอบ autorefresh ซึ่งจะโดน rate limit ของ Google แน่นอน"""
-    r = requests.post(GD_TOKEN_URL, timeout=20, data={
-        "client_id": client_id, "client_secret": client_secret,
-        "refresh_token": refresh_token, "grant_type": "refresh_token"})
-    if r.status_code != 200:
-        # [FIX v13] invalid_grant คือ error ที่เจอบ่อยที่สุด และข้อความดิบของ Google
-        #   ไม่บอกสาเหตุเลย — เติมคำใบ้ให้ตรงกับ 3 กรณีที่เกิดจริง
-        hint = ""
-        if "invalid_grant" in r.text:
-            hint = ("\n\nสาเหตุที่พบบ่อย:\n"
-                    "1) ยังไม่ได้รัน get_gdrive_token.py — refresh_token ใน Secrets "
-                    "ยังเป็นข้อความ placeholder อยู่\n"
-                    "2) OAuth consent screen ยังเป็น 'Testing' → token หมดอายุทุก 7 วัน "
-                    "ต้องกด Publish to Production แล้วขอ token ใหม่\n"
-                    "3) ถอนสิทธิ์แอปออกจากบัญชี Google ไปแล้ว → ขอ token ใหม่")
-        raise RuntimeError(f"ขอ access token ไม่สำเร็จ ({r.status_code}): {r.text[:200]}{hint}")
-    return r.json()["access_token"]
-
-def _gd_headers(cfg):
-    return {"Authorization": "Bearer " + _gd_access_token(
-        cfg["client_id"], cfg["client_secret"], cfg["refresh_token"])}
-
-def gdrive_diagnose():
-    """[FIX v15] รายงานว่าแอปอ่านอะไรจาก Secrets ได้จริง ๆ
-    ทำเป็นฟังก์ชันแยกเพราะ invalid_grant ของ Google ไม่บอกอะไรเลยว่าผิดตรงไหน
-    ต้องเห็นค่าที่ใช้จริงก่อนถึงจะรู้ว่า client คนละตัว/token ยังเป็น placeholder"""
-    rows = []
-    try:
-        g = st.secrets["gdrive"]
-    except (KeyError, FileNotFoundError, AttributeError):
-        return [("[gdrive]", "❌", "ไม่พบหมวด [gdrive] ใน Secrets เลย")], False
-
-    cid = str(g.get("client_id", "")).strip()
-    csec = str(g.get("client_secret", "")).strip()
-    rt = str(g.get("refresh_token", "")).strip()
-
-    # client_id
-    if not cid:
-        rows.append(("client_id", "❌", "ว่าง"))
-    elif not cid.endswith(".apps.googleusercontent.com"):
-        rows.append(("client_id", "⚠️", f"รูปแบบแปลก: {cid[:40]}"))
-    else:
-        rows.append(("client_id", "✅", cid.split("-")[1][:14] + "…  (เอาไว้เทียบว่าตรงกับ client ที่ใช้ขอ token ไหม)"))
-
-    # client_secret
-    if not csec:
-        rows.append(("client_secret", "❌", "ว่าง"))
-    elif not csec.startswith("GOCSPX-"):
-        rows.append(("client_secret", "⚠️", "ปกติขึ้นต้นด้วย GOCSPX-"))
-    else:
-        rows.append(("client_secret", "✅", f"ยาว {len(csec)} ตัว"))
-
-    # refresh_token — จุดที่พลาดบ่อยที่สุด
-    ok_rt = False
-    if not rt:
-        rows.append(("refresh_token", "❌", "ว่าง"))
-    elif not rt.startswith("1//"):
-        rows.append(("refresh_token", "❌",
-                     f"ไม่ใช่ refresh token จริง (ต้องขึ้นต้นด้วย 1//) — ค่าที่ใส่ไว้ขึ้นต้นว่า {rt[:12]!r}"))
-    elif len(rt) < 40:
-        rows.append(("refresh_token", "⚠️", f"สั้นผิดปกติ ({len(rt)} ตัว) น่าจะ copy มาไม่ครบ"))
-    else:
-        rows.append(("refresh_token", "✅", f"{rt[:6]}…  ยาว {len(rt)} ตัว"))
-        ok_rt = True
-
-    rows.append(("folder_name", "ℹ️", str(g.get("folder_name") or "Trip Splitter Backups")))
-    if str(g.get("folder_id") or "").strip():
-        rows.append(("folder_id", "⚠️", "ตั้งไว้ — ถ้าโฟลเดอร์ไม่ได้ถูกสร้างโดยแอป อาจได้ 404 แล้ว fallback"))
-    return rows, ok_rt
-
-
-def _gd_folder(cfg):
-    """[FIX v14] หา/สร้างโฟลเดอร์ปลายทาง — คืน (folder_id, ข้อความอธิบาย)
-
-    ทำไมต้องมีฟังก์ชันนี้: scope ที่ขอไว้คือ drive.file ซึ่งให้สิทธิ์เฉพาะไฟล์
-    ที่ "แอปนี้สร้างเอง" เท่านั้น โฟลเดอร์ที่ผู้ใช้กดสร้างเองในหน้าเว็บ Drive
-    แอปอาจมองไม่เห็น (ได้ 404 File not found) ทางที่ชัวร์คือให้แอปสร้างโฟลเดอร์
-    ของตัวเอง แล้วค้นหาด้วยชื่อในครั้งถัด ๆ ไป
-    ถ้าผู้ใช้ระบุ folder_id มาเองก็เคารพค่านั้น (เผื่อใช้ได้) แต่ถ้าพังจะ
-    fallback มาใช้โฟลเดอร์ที่แอปสร้างแทน"""
-    if cfg["folder_id"]:
-        return cfg["folder_id"], "ใช้ folder_id ที่ตั้งไว้"
-
-    name = cfg["folder_name"].replace("'", "")
-    q = ("mimeType='application/vnd.google-apps.folder' and trashed=false "
-         f"and name='{name}'")
-    r = requests.get(GD_FILES_URL, headers=_gd_headers(cfg), timeout=60,
-                     params={"q": q, "fields": "files(id,name)", "pageSize": 1})
-    if r.status_code == 200 and r.json().get("files"):
-        return r.json()["files"][0]["id"], f"ใช้โฟลเดอร์ '{name}' ที่มีอยู่แล้ว"
-
-    r = requests.post(GD_FILES_URL, headers=_gd_headers(cfg), timeout=60,
-                      params={"fields": "id"},
-                      json={"name": name,
-                            "mimeType": "application/vnd.google-apps.folder"})
-    if r.status_code not in (200, 201):
-        raise RuntimeError(f"สร้างโฟลเดอร์ไม่สำเร็จ ({r.status_code}): {r.text[:200]}")
-    return r.json()["id"], f"สร้างโฟลเดอร์ '{name}' ใหม่ใน Drive แล้ว"
-
-
-def gdrive_upload(cfg, filename, data):
-    """อัปโหลดไฟล์สำรอง — คืน (ok, ข้อความ)"""
-    try:
-        fid, note = _gd_folder(cfg)
-        meta = {"name": filename}
-        if fid: meta["parents"] = [fid]
-        r = requests.post(
-            GD_UPLOAD_URL, params={"uploadType": "multipart", "fields": "id,name"},
-            headers=_gd_headers(cfg), timeout=180,
-            files={"metadata": ("metadata", json.dumps(meta), "application/json; charset=UTF-8"),
-                   "file": (filename, data, "application/json")})
-        # [FIX v14] 404 = แอปมองไม่เห็นโฟลเดอร์นั้น (ไม่ได้สร้างเอง / id ผิด)
-        #   ลองใหม่โดยใช้โฟลเดอร์ของแอปเองแทน จะได้ไม่ต้องให้ผู้ใช้มานั่งแก้เอง
-        if r.status_code == 404 and cfg["folder_id"]:
-            cfg2 = dict(cfg, folder_id="")
-            fid2, note2 = _gd_folder(cfg2)
-            meta["parents"] = [fid2]
-            r = requests.post(
-                GD_UPLOAD_URL, params={"uploadType": "multipart", "fields": "id,name"},
-                headers=_gd_headers(cfg), timeout=180,
-                files={"metadata": ("metadata", json.dumps(meta), "application/json; charset=UTF-8"),
-                       "file": (filename, data, "application/json")})
-            note = (f"folder_id ที่ตั้งไว้ใช้ไม่ได้ (scope drive.file เห็นเฉพาะโฟลเดอร์"
-                    f"ที่แอปสร้างเอง) — {note2} แทน")
-        if r.status_code not in (200, 201):
-            return False, f"อัปโหลดไม่สำเร็จ ({r.status_code}): {r.text[:200]}"
-        return True, f"อัปโหลด {r.json().get('name', filename)} แล้ว · {note}"
-    except (requests.RequestException, RuntimeError, ValueError) as e:
-        return False, str(e)
-
-def gdrive_list(cfg, limit=20):
-    """รายชื่อไฟล์สำรองบน Drive ใหม่→เก่า — คืน (ok, list|ข้อความ)"""
-    try:
-        # [FIX v14] ไม่กรองด้วยโฟลเดอร์ — drive.file เห็นเฉพาะไฟล์ที่แอปสร้างเองอยู่แล้ว
-        #   จึงไม่มีทางเจอไฟล์ของคนอื่น และยังหาไฟล์เก่าเจอแม้จะย้ายโฟลเดอร์ไปแล้ว
-        q = "trashed=false and name contains 'trip_backup_'"
-        r = requests.get(GD_FILES_URL, headers=_gd_headers(cfg), timeout=60, params={
-            "q": q, "orderBy": "createdTime desc", "pageSize": limit,
-            "fields": "files(id,name,size,createdTime)"})
-        if r.status_code != 200:
-            return False, f"อ่านรายการไม่สำเร็จ ({r.status_code}): {r.text[:200]}"
-        return True, r.json().get("files", [])
-    except (requests.RequestException, RuntimeError, ValueError) as e:
-        return False, str(e)
-
-def gdrive_download(cfg, file_id):
-    """ดาวน์โหลดไฟล์สำรอง — คืน (ok, bytes|ข้อความ)"""
-    try:
-        r = requests.get(f"{GD_FILES_URL}/{file_id}", headers=_gd_headers(cfg),
-                         params={"alt": "media"}, timeout=180)
-        if r.status_code != 200:
-            return False, f"ดาวน์โหลดไม่สำเร็จ ({r.status_code}): {r.text[:200]}"
-        return True, r.content
-    except (requests.RequestException, RuntimeError) as e:
-        return False, str(e)
+def render_flash():
+    f = st.session_state.get("flash")
+    if not f:
+        return
+    msg, kind, t0 = f
+    elapsed = time.time() - t0
+    if elapsed >= FLASH_SECONDS:
+        st.session_state.pop("flash", None)
+        return
+    # เลื่อน animation ให้ไปเริ่มตรงจุดที่ค้างไว้ ข้อความจึงหายตรงเวลา
+    # ไม่ว่าจะเกิด rerun กี่รอบระหว่างทาง
+    cls = {"ok": "flash-ok", "err": "flash-err",
+           "warn": "flash-warn", "info": "flash-info"}.get(kind, "flash-info")
+    st.markdown(
+        f'<div class="flash-wrap"><div class="flash-box {cls}" '
+        f'style="animation-delay:-{elapsed:.2f}s;">'
+        f'<span class="flash-ico">{FLASH_ICONS.get(kind, "ℹ️")}</span>'
+        f'<span>{esc(msg)}</span></div></div>',
+        unsafe_allow_html=True)
 
 def heartbeat(u):
     if u:
@@ -996,6 +869,9 @@ with st.container(key="menubar"):
 
 menu = st.session_state["menu"]
 
+# [FIX v17] วาดป๊อปอัพหลังแถบเมนู เพื่อให้ลอยทับทุกหน้าเหมือนกัน
+render_flash()
+
 # ═══════════════════════════════════════════════════════
 # PAGE ROUTING
 # ═══════════════════════════════════════════════════════
@@ -1054,7 +930,7 @@ if menu == "home":
                                     msg=f"📌 บิลใหม่: '{desc}'\n💰 {amt:,.2f} บาท | จ่ายโดย: {payer}\n💸 ส่วนคุณ: {sh:,.2f} บาท"
                                     c.execute("INSERT INTO notifications (trip_id,to_user,from_user,message,is_auto,is_read,timestamp) VALUES (?,?,'ระบบสรุปยอด',?,1,0,?)",(trip_id,m2,msg,now_str()))
                             c.commit(); c.close()
-                            st.success(f"✅ บันทึก '{desc}' แล้ว!"); time.sleep(0.6); st.rerun()
+                            flash(f"บันทึก '{desc}' แล้ว!", "ok"); st.rerun()
                         else: st.error("⚠️ กรอกข้อมูลให้ครบ")
 
         # ── TAB 2 ──────────────────────────────────────────────
@@ -1092,10 +968,10 @@ if menu == "home":
                                     if di: c.execute("UPDATE expenses SET description=?,amount=?,payer_name=?,split_members=?,image_blob=NULL WHERE id=?",(ud,ua,up,",".join(us),row['id']))
                                     elif uf: c.execute("UPDATE expenses SET description=?,amount=?,payer_name=?,split_members=?,image_blob=? WHERE id=?",(ud,ua,up,",".join(us),compress_image(uf),row['id']))
                                     else: c.execute("UPDATE expenses SET description=?,amount=?,payer_name=?,split_members=? WHERE id=?",(ud,ua,up,",".join(us),row['id']))
-                                    c.commit(); c.close(); st.success("✅ อัปเดต!"); time.sleep(0.5); st.rerun()
+                                    c.commit(); c.close(); flash("อัปเดต!", "ok"); st.rerun()
                             if st.button("🗑️ ลบบิล", key=f"db_{row['id']}", type="secondary"):
                                 c=db(); c.execute("DELETE FROM expenses WHERE id=?",(row['id'],)); c.commit(); c.close()
-                                st.warning("ลบแล้ว"); time.sleep(0.5); st.rerun()
+                                flash("ลบแล้ว", "warn"); st.rerun()
 
         # ── TAB 3 ──────────────────────────────────────────────
         with tab3:
@@ -1194,7 +1070,7 @@ if menu == "home":
                                        (trip_id, cn if me==dn else dn,
                                         f"✅ บันทึกการชำระเงิน\n💳 {dn} → {cn}\n💰 {at:,.2f} บาท", now_str()))
                             cp.commit(); cp.close()
-                            st.toast("✅ บันทึกการชำระแล้ว"); time.sleep(0.5); st.rerun()
+                            flash("บันทึกการชำระแล้ว", "ok"); st.rerun()
                     else:
                         st.caption("รายการนี้ไม่เกี่ยวกับคุณ — ให้คู่กรณีเป็นคนกดยืนยัน")
                     final_tx.append((dn,cn,at))
@@ -1210,7 +1086,7 @@ if menu == "home":
                                         unsafe_allow_html=True)
                             if h2.button("ยกเลิก", key=f"unpay_{pr['id']}"):
                                 cu=db(); cu.execute("DELETE FROM settlements WHERE id=?",(pr['id'],)); cu.commit(); cu.close()
-                                st.toast("↩️ ยกเลิกการชำระแล้ว"); time.sleep(0.5); st.rerun()
+                                flash("ยกเลิกการชำระแล้ว", "ok"); st.rerun()
 
                 st.markdown("#### 📲 แชร์ LINE")
                 lm=f"📊 สรุปบิล: {cur_trip}\n"
@@ -1249,7 +1125,7 @@ elif menu == "manage":
                     if ok_n:
                         try:
                             c=db(); c.execute("INSERT INTO trips (name,status,trip_date) VALUES (?,0,?)",(ne.strip(),nd.strftime("%Y-%m-%d"))); c.commit(); c.close()
-                            st.success(f"สร้าง '{ne.strip()}' แล้ว!"); time.sleep(0.5); st.rerun()
+                            flash(f"สร้าง '{ne.strip()}' แล้ว!", "ok"); st.rerun()
                         except sqlite3.IntegrityError: st.error("❌ ชื่อซ้ำ")
                     else: st.error(f"⚠️ {err_n}")
 
@@ -1265,12 +1141,12 @@ elif menu == "manage":
                         if ok_r:
                             try:
                                 c=db(); c.execute("UPDATE trips SET name=?,trip_date=? WHERE id=?",(rn.strip(),rd.strftime("%Y-%m-%d"),trip_id)); c.commit(); c.close()
-                                st.success("✅ แก้ไขแล้ว!"); time.sleep(0.5); st.rerun()
+                                flash("แก้ไขแล้ว!", "ok"); st.rerun()
                             except sqlite3.IntegrityError: st.error("❌ ชื่อซ้ำ")
                         else: st.error(f"⚠️ {err_r}")
                 if st.button("🗑️ ลบ Event นี้", type="secondary", use_container_width=True):
                     c=db(); c.execute("UPDATE trips SET status=1 WHERE id=?",(trip_id,)); c.commit(); c.close()
-                    st.session_state["trip_id"]=None; st.toast("ย้ายสู่ถังขยะ"); time.sleep(0.5); st.rerun()
+                    st.session_state["trip_id"]=None; flash("ย้ายสู่ถังขยะ", "ok"); st.rerun()
 
         with right:
             st.markdown('<div class="section-head">🗺️ เลือก Event</div>', unsafe_allow_html=True)
@@ -1319,7 +1195,7 @@ elif menu == "manage":
                             unsafe_allow_html=True)
                         if mc2.button("ออก", key=f"rm_{mem}"):
                             c.execute("DELETE FROM members WHERE trip_id=? AND name=?",(trip_id,mem)); c.commit()
-                            st.toast(f"ถอด {mem}"); time.sleep(0.5); st.rerun()
+                            flash(f"ถอด {mem}", "ok"); st.rerun()
                     c.close()
                 else: st.info("ยังไม่มีสมาชิก")
 
@@ -1367,7 +1243,7 @@ elif menu == "manage":
                     def add_selected_members():
                         sel = list(st.session_state.get("ms_add_mems", []))
                         if not sel:
-                            st.session_state["add_mem_msg"] = ("err", "⚠️ กรุณาเลือกสมาชิกอย่างน้อย 1 คน")
+                            st.session_state["add_mem_msg"] = ("err", "กรุณาเลือกสมาชิกอย่างน้อย 1 คน")
                             return
                         c = db()
                         for su in sel:   # [FIX v11] OR IGNORE — ตอนนี้มี UNIQUE(trip_id,name) แล้ว
@@ -1383,7 +1259,7 @@ elif menu == "manage":
                     # callback สั่ง rerun ให้เองอยู่แล้ว จึงมาอ่านผลลัพธ์ตรงนี้
                     _res = st.session_state.pop("add_mem_msg", None)
                     if _res:
-                        (st.toast if _res[0] == "ok" else st.error)(_res[1])
+                        flash(_res[1], "ok" if _res[0] == "ok" else "err")
                 else:
                     st.info("ทุกคนอยู่ในกลุ่มแล้ว")
 
@@ -1406,12 +1282,12 @@ elif menu == "manage":
                 dc1.markdown(f"✈️ **{dn2}**")
                 if dc2.button("กู้คืน",key=f"rs_{dt['id']}",type="primary"):
                     c=db(); c.execute("UPDATE trips SET status=0 WHERE id=?",(dt['id'],)); c.commit(); c.close()
-                    st.toast("กู้คืนแล้ว!"); time.sleep(0.5); st.rerun()
+                    flash("กู้คืนแล้ว!", "ok"); st.rerun()
                 if dc3.button("ลบถาวร",key=f"pd_{dt['id']}",type="secondary"):
                     c=db()
                     for tb in ["settlements","expenses","members","notifications"]: c.execute(f"DELETE FROM {tb} WHERE trip_id=?",(dt['id'],))
                     c.execute("DELETE FROM trips WHERE id=?",(dt['id'],)); c.commit(); c.close()
-                    st.toast("ลบถาวร!"); time.sleep(0.5); st.rerun()
+                    flash("ลบถาวร!", "ok"); st.rerun()
 
     # ── [FIX v11] TAB: สำรองข้อมูล ───────────────────────
     with t_backup:
@@ -1463,92 +1339,10 @@ elif menu == "manage":
                          use_container_width=True, disabled=not (up and confirm)):
                 ok, msg = import_backup(up.getvalue(), wipe=(mode == "ล้างของเดิมแล้วเขียนทับ"))
                 if ok:
-                    st.success(f"✅ {msg}"); time.sleep(0.8); st.rerun()
+                    flash(f"{msg}", "ok"); st.rerun()
                 else:
                     st.error(f"❌ {msg}")
 
-        # ── [FIX v12] Google Drive ────────────────────────
-        st.markdown('<div class="section-head" style="margin-top:18px;">☁️ Google Drive</div>',
-                    unsafe_allow_html=True)
-        _gd = gdrive_cfg()
-
-        # [FIX v15] แผงตรวจสอบ — เปิดได้เสมอ ไม่ว่าจะตั้งค่าสำเร็จหรือยัง
-        with st.expander("🔍 ตรวจสอบการตั้งค่า Secrets", expanded=not _gd):
-            _rows, _rt_ok = gdrive_diagnose()
-            for _k, _icon, _v in _rows:
-                st.markdown(f"{_icon} **`{_k}`** — {esc(_v)}")
-            if not _rt_ok:
-                st.warning(
-                    "refresh_token ยังไม่ถูกต้อง — ต้องได้จาก OAuth Playground "
-                    "หรือสคริปต์ `get_gdrive_token.py` เท่านั้น (ขึ้นต้นด้วย `1//`)")
-            st.caption(
-                "⚠️ client_id ที่แสดงต้องเป็น **client ตัวเดียวกัน** กับที่ใช้ขอ refresh_token "
-                "— ขอด้วย client ตัวหนึ่งแล้วเอาอีกตัวมาใส่ จะได้ invalid_grant เสมอ")
-            if _gd and st.button("🧪 ทดสอบเชื่อมต่อ Google", use_container_width=True):
-                # [FIX v15] ยิงตรงไม่ผ่าน _gd_access_token เพราะตัวนั้นถูก cache
-                #   ผลเก่าจะถูกส่งกลับมาแทนที่จะลองใหม่จริง ๆ และเราอยากได้
-                #   error_description ดิบจาก Google ซึ่งบอกสาเหตุละเอียดกว่า
-                try:
-                    _r = requests.post(GD_TOKEN_URL, timeout=20, data={
-                        "client_id": _gd["client_id"], "client_secret": _gd["client_secret"],
-                        "refresh_token": _gd["refresh_token"], "grant_type": "refresh_token"})
-                    if _r.status_code == 200:
-                        st.success("✅ เชื่อมต่อได้ — พร้อมใช้งาน กดอัปโหลดได้เลย")
-                    else:
-                        try: _j = _r.json()
-                        except ValueError: _j = {}
-                        st.error(f"❌ {_j.get('error', _r.status_code)}: "
-                                 f"{_j.get('error_description') or _r.text[:150]}")
-                        if _j.get("error") == "invalid_grant":
-                            st.markdown(
-                                "**invalid_grant แปลว่า Google ปฏิเสธ refresh_token นี้** สาเหตุที่เป็นไปได้:\n"
-                                "1. `refresh_token` ยังเป็นข้อความ placeholder (ต้องขึ้นต้นด้วย `1//`)\n"
-                                "2. ขอ token ด้วย client คนละตัวกับที่ใส่ใน Secrets\n"
-                                "3. OAuth consent screen ยังเป็น **Testing** → token ตายใน 7 วัน\n"
-                                "4. ใช้ credential กลางของ Playground (ลืมติ๊ก *Use your own OAuth credentials*) → ตายใน 24 ชม.\n"
-                                "5. ถอนสิทธิ์แอปออกจากบัญชี Google ไปแล้ว")
-                except requests.RequestException as _e:
-                    st.error(f"❌ ต่อเน็ตไม่ได้: {_e}")
-
-        if not _gd:
-            st.info("ยังไม่ได้ตั้งค่า — ดูวิธีทำใน `GOOGLE_DRIVE_SETUP.md` "
-                    "แล้วใส่ค่าใน Streamlit Cloud → Settings → Secrets")
-        else:
-            gc1, gc2 = st.columns(2)
-            with gc1:
-                if st.button("☁️ อัปโหลดขึ้น Drive ตอนนี้", type="primary", use_container_width=True):
-                    with st.spinner("กำลังอัปโหลด..."):
-                        _ok, _msg = gdrive_upload(
-                            _gd, f"trip_backup_{datetime.now(TZ).strftime('%Y%m%d_%H%M%S')}.json",
-                            export_backup())
-                    (st.success if _ok else st.error)(("✅ " if _ok else "❌ ") + _msg)
-            with gc2:
-                if st.button("🔄 โหลดรายการไฟล์บน Drive", use_container_width=True):
-                    st.session_state["gd_files"] = gdrive_list(_gd)
-
-
-            _res = st.session_state.get("gd_files")
-            if _res:
-                _ok, _files = _res
-                if not _ok:
-                    st.error(f"❌ {_files}")
-                elif not _files:
-                    st.caption("ยังไม่มีไฟล์สำรองบน Drive")
-                else:
-                    _lbl = {f"{f['name']}  ({int(f.get('size',0))/1024:,.0f} KB)": f["id"] for f in _files}
-                    _pick = st.selectbox("เลือกไฟล์ที่จะกู้คืน:", list(_lbl.keys()))
-                    _cf = st.checkbox("ยืนยันเขียนทับข้อมูลปัจจุบันด้วยไฟล์นี้", key="gd_confirm")
-                    if st.button("♻️ กู้คืนจาก Drive", disabled=not _cf, use_container_width=True):
-                        with st.spinner("กำลังดาวน์โหลด..."):
-                            _dok, _data = gdrive_download(_gd, _lbl[_pick])
-                        if not _dok:
-                            st.error(f"❌ {_data}")
-                        else:
-                            _iok, _imsg = import_backup(_data, wipe=True)
-                            if _iok:
-                                st.success(f"✅ {_imsg}"); time.sleep(0.8); st.rerun()
-                            else:
-                                st.error(f"❌ {_imsg}")
 
 # ═══════════════════════════════════════════════════════
 # PAGE: แชท
@@ -1687,10 +1481,10 @@ elif menu == "account":
                                     h,sl = hash_pin(pin_in)
                                     c=db(); c.execute("UPDATE all_users SET pin_hash=?,pin_salt=? WHERE name=?",(h,sl,us2)); c.commit(); c.close()
                                     st.session_state["me"]=us2; heartbeat(us2)
-                                    st.toast(f"🔐 ตั้ง PIN แล้ว ยินดีต้อนรับ {us2}!"); time.sleep(0.6); st.rerun()
+                                    flash(f"ตั้ง PIN แล้ว ยินดีต้อนรับ {us2}!", "ok"); st.rerun()
                             elif check_pin(pin_in, row["pin_hash"], row["pin_salt"]):
                                 st.session_state["me"]=us2; heartbeat(us2)
-                                st.toast(f"👋 ยินดีต้อนรับ, {us2}!"); time.sleep(0.5); st.rerun()
+                                flash(f"ยินดีต้อนรับ, {us2}!", "ok"); st.rerun()
                             else:
                                 st.error("❌ PIN ไม่ถูกต้อง")
                     st.caption("บัญชีที่สร้างไว้ก่อนมีระบบ PIN จะตั้ง PIN ครั้งแรกตอนล็อกอิน")
@@ -1709,7 +1503,8 @@ elif menu == "account":
                             h,sl = hash_pin(p1)
                             try:
                                 c=db(); c.execute("INSERT INTO all_users (name,pin_hash,pin_salt) VALUES (?,?,?)",(nn.strip(),h,sl)); c.commit(); c.close()
-                                st.session_state["me"]=nn.strip(); heartbeat(nn.strip()); time.sleep(0.5); st.rerun()
+                                st.session_state["me"]=nn.strip(); heartbeat(nn.strip())
+                                flash(f"ยินดีต้อนรับ {nn.strip()}!", "ok"); st.rerun()
                             except sqlite3.IntegrityError:
                                 st.error("❌ มีคนใช้ชื่อนี้แล้ว")
         else:
@@ -1764,7 +1559,7 @@ elif menu == "account":
                             if st.session_state.get("chat_partner") == me:
                                 st.session_state["chat_partner"] = nn2
                     if ok:
-                        st.toast("💾 บันทึกโปรไฟล์แล้ว!"); time.sleep(0.5); st.rerun()
+                        flash("บันทึกโปรไฟล์แล้ว!", "ok"); st.rerun()
                     else:
                         st.error(f"❌ {err}")
 
@@ -1778,7 +1573,7 @@ elif menu == "account":
                 if st.form_submit_button("💾 บันทึก",type="primary",use_container_width=True):
                     fb=ebn if ebn!="-- เลือกธนาคาร --" else ""
                     c=db(); c.execute("UPDATE all_users SET promptpay=?,bank_name=?,bank_account=? WHERE name=?",(epp,fb,eba,me)); c.commit(); c.close()
-                    st.toast("💾 บันทึกแล้ว!"); time.sleep(0.5); st.rerun()
+                    flash("บันทึกแล้ว!", "ok"); st.rerun()
 
             # ── [FIX v11] เปลี่ยน PIN ──────────────────────────
             with st.expander("🔑 เปลี่ยน PIN"):
@@ -1796,7 +1591,7 @@ elif menu == "account":
                         else:
                             h,sl = hash_pin(np1)
                             c=db(); c.execute("UPDATE all_users SET pin_hash=?,pin_salt=? WHERE name=?",(h,sl,me)); c.commit(); c.close()
-                            st.toast("🔑 เปลี่ยน PIN แล้ว!"); time.sleep(0.5); st.rerun()
+                            flash("เปลี่ยน PIN แล้ว!", "ok"); st.rerun()
 
             if st.button("🚪 ออกจากระบบ",type="secondary",use_container_width=True):
                 c=db(); c.execute("DELETE FROM online_status WHERE name=?",(me,)); c.commit(); c.close()
