@@ -371,38 +371,6 @@ div.st-key-menubar .stButton > button[kind="primary"] p {
 [data-testid="stMarkdownContainer"] li { color:#000 !important; }
 [data-testid="stCaptionContainer"] p { color:#374151 !important; }
 
-/* ══ [FIX v10] การ์ดโปรไฟล์ที่กดวงกลมเพื่อดูรูปใหญ่ได้ ══
-   selector ใช้ ".stButton button" (2 คลาส) เพื่อให้ specificity สูงกว่ากฎ
-   ".stButton > button[kind=...]" ของปุ่มทั่วไป — ไม่งั้นสีปุ่มทั่วไปจะชนะ
-   แม้ทั้งคู่จะใส่ !important เพราะ !important เท่ากันแล้วตัดสินที่ specificity */
-div.st-key-profcard {
-    background:#fff; border:1.5px solid #bfdbfe; border-radius:12px;
-    padding:14px 16px !important; margin-bottom:14px;
-}
-div.st-key-profcard div[data-testid="stHorizontalBlock"] {
-    align-items:center !important; gap:12px !important;
-}
-div.st-key-profcard .stButton button {
-    width:58px !important; height:58px !important; min-width:58px !important;
-    padding:0 !important; border-radius:50% !important;
-    background-color:#1d4ed8 !important;
-    background-image: var(--pf-img, none) !important;
-    background-size:cover !important; background-position:center !important;
-    border:2px solid #bfdbfe !important;
-    font-size:22px !important; font-weight:800 !important;
-    color: var(--pf-txt, #fff) !important;
-    transition: filter .15s, border-color .15s !important;
-}
-div.st-key-profcard .stButton button p {
-    color: var(--pf-txt, #fff) !important; margin:0 !important;
-}
-div.st-key-profcard .stButton button:hover {
-    filter:brightness(1.08) !important; border-color:#1d4ed8 !important;
-}
-.pf-name { font-weight:800; font-size:17px; color:#000 !important; line-height:1.35; }
-.pf-on   { font-size:13px; color:#16a34a !important; font-weight:600; line-height:1.35; }
-.pf-hint { font-size:11px; color:#6b7280 !important; line-height:1.5; }
-
 /* ══ CARDS ══ */
 .card {
     background:#fff; border:1.5px solid #bfdbfe; border-radius:12px;
@@ -1447,23 +1415,24 @@ elif menu == "manage":
 
     # ── [FIX v11] TAB: สำรองข้อมูล ───────────────────────
     with t_backup:
-        # [FIX v12] ล็อกด้วย PIN — ไฟล์สำรองมีเลขบัญชีธนาคาร พร้อมเพย์
-        #   แชทส่วนตัวของทุกคน และ pin_hash (PIN 4 หลักมีแค่ 10,000 แบบ
-        #   ต่อให้เป็น PBKDF2 ก็ brute-force ได้) จึงไม่ควรให้ใครก็กดโหลดได้
-        if not me:
-            st.warning("กรุณาเข้าสู่ระบบก่อนใช้งานส่วนนี้")
-            st.stop()
-        if not st.session_state.get("backup_unlocked"):
-            st.info("🔒 ส่วนนี้มีข้อมูลบัญชีธนาคารและแชทส่วนตัว — ยืนยันด้วย PIN ของคุณ")
-            with st.form("unlock_backup"):
-                _p = st.text_input("🔑 PIN ของคุณ:", type="password", max_chars=6)
-                if st.form_submit_button("ปลดล็อก", type="primary"):
-                    c=db(); _r=c.execute("SELECT pin_hash,pin_salt FROM all_users WHERE name=?",(me,)).fetchone(); c.close()
-                    if _r and check_pin(_p, _r["pin_hash"], _r["pin_salt"]):
-                        st.session_state["backup_unlocked"] = True; st.rerun()
-                    else:
-                        st.error("❌ PIN ไม่ถูกต้อง")
-            st.stop()
+        # [FIX v16] ถอดการล็อกด้วย PIN และไม่ต้องล็อกอินแล้ว ตามที่ผู้ใช้ขอ
+        #   เปิดใช้ใหม่ได้โดยเปลี่ยนเป็น True
+        BACKUP_REQUIRE_PIN = False
+        if BACKUP_REQUIRE_PIN:
+            if not me:
+                st.warning("กรุณาเข้าสู่ระบบก่อนใช้งานส่วนนี้")
+                st.stop()
+            if not st.session_state.get("backup_unlocked"):
+                st.info("🔒 ส่วนนี้มีข้อมูลบัญชีธนาคารและแชทส่วนตัว — ยืนยันด้วย PIN ของคุณ")
+                with st.form("unlock_backup"):
+                    _p = st.text_input("🔑 PIN ของคุณ:", type="password", max_chars=6)
+                    if st.form_submit_button("ปลดล็อก", type="primary"):
+                        c=db(); _r=c.execute("SELECT pin_hash,pin_salt FROM all_users WHERE name=?",(me,)).fetchone(); c.close()
+                        if _r and check_pin(_p, _r["pin_hash"], _r["pin_salt"]):
+                            st.session_state["backup_unlocked"] = True; st.rerun()
+                        else:
+                            st.error("❌ PIN ไม่ถูกต้อง")
+                st.stop()
 
         st.warning(
             "⚠️ **ข้อมูลไม่ถาวร** — Streamlit Community Cloud ล้างไฟล์ในเครื่องทุกครั้ง "
@@ -1744,41 +1713,16 @@ elif menu == "account":
                             except sqlite3.IntegrityError:
                                 st.error("❌ มีคนใช้ชื่อนี้แล้ว")
         else:
-            # [FIX v10] การ์ดโปรไฟล์ — กดที่วงกลมเพื่อดูรูปใหญ่ กดซ้ำเพื่อย่อกลับ
-            #   ใช้ st.button จริงแล้วแต่งเป็นวงกลม (ไม่ใช้ <img> ใน markdown)
-            #   เพราะ HTML ที่ st.markdown เรนเดอร์คลิกแล้วสั่ง Python ไม่ได้
-            _blob = avatars.get(me)
-            _thumb = avatar_thumb_uri(_blob, 160) if _blob else None
-            if "avatar_zoom" not in st.session_state:
-                st.session_state["avatar_zoom"] = False
-
-            def toggle_avatar_zoom():
-                st.session_state["avatar_zoom"] = not st.session_state["avatar_zoom"]
-
+            # [FIX v16] ถอดฟีเจอร์กดดูรูปใหญ่ออกตามที่ผู้ใช้ขอ — กลับมาเป็น
+            #   การ์ดนิ่ง ๆ ที่แสดงรูปโปรไฟล์เฉย ๆ (ไม่ต้องใช้ st.button/session_state
+            #   จึงไม่มี rerun เวลากดโดนอีกต่อไป)
             st.markdown(
-                "<style>div.st-key-profcard{"
-                f"--pf-img:{'url(' + _thumb + ')' if _thumb else 'none'};"
-                f"--pf-txt:{'transparent' if _thumb else '#fff'};"
-                "}</style>", unsafe_allow_html=True)
-
-            _zoom = st.session_state["avatar_zoom"]
-            with st.container(key="profcard"):
-                pc1, pc2 = st.columns([1, 3.4])
-                with pc1:
-                    st.button(me[0].upper(), key="btn_avatar_zoom",
-                              on_click=toggle_avatar_zoom)
-                with pc2:
-                    st.markdown(
-                        f'<div class="pf-name">{esc(me)}</div>'
-                        '<div class="pf-on">🟢 ออนไลน์อยู่</div>'
-                        f'<div class="pf-hint">{"👆 กดรูปอีกครั้งเพื่อย่อ" if _zoom else "👆 กดรูปเพื่อดูขนาดใหญ่"}</div>',
-                        unsafe_allow_html=True)
-                if _zoom:
-                    if _blob:
-                        zc = st.columns([1, 2, 1])
-                        zc[1].image(_blob, use_container_width=True)
-                    else:
-                        st.info("ยังไม่ได้ตั้งรูปโปรไฟล์ — อัปโหลดได้ที่ **👤 แก้ไขโปรไฟล์** ด้านล่าง")
+                '<div class="card" style="display:flex;align-items:center;gap:14px;padding:16px;">'
+                + avatar_html(me, avatars.get(me), size=56, font=24)
+                + f'<div><div style="font-weight:800;font-size:17px;color:#000;">{esc(me)}</div>'
+                  '<div style="font-size:13px;color:#16a34a;font-weight:600;">🟢 ออนไลน์อยู่</div></div>'
+                  '</div>',
+                unsafe_allow_html=True)
 
             c=db(); md=c.execute("SELECT * FROM all_users WHERE name=?",(me,)).fetchone(); c.close()
             # [FIX v15] กันหน้าพังเมื่อ session ชี้ไปยังผู้ใช้ที่ไม่มีใน DB แล้ว
