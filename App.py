@@ -275,13 +275,34 @@ div.st-key-menubar .stButton > button[kind="primary"] p {
     color: #fff !important;
 }
 
+/* ══ [FIX v20] เก็บช่องว่างที่เกิดจาก element ล่องหน ══
+   ก่อนหน้าเนื้อหาจริงมี element อยู่ 7 ตัวที่ไม่แสดงอะไรในหน้าเลย
+   (แท็ก <style> 2 ตัว, navbar/menubar/ปุ่มโปรไฟล์ ที่เป็น position:fixed,
+   คอนเทนเนอร์ซ่อน และช่องสำรองของป๊อปอัพ)
+   แต่ stVerticalBlock ใส่ gap ระหว่างลูกทุกตัว ต่อให้ลูกสูง 0
+   → ได้ช่องว่างเปล่า ๆ ราว 7 × 1rem ≈ 112px ใต้แถบเมนู
+   วิธีแก้: ดึงออกจาก flow ด้วย position:absolute เพราะลูกที่ absolute
+   ไม่ถูกนับใน gap ของ flexbox (ตัวที่เป็น fixed อยู่แล้วยังแสดงปกติ) */
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdownContainer"] > style),
+[data-testid="stElementContainer"]:has(.navbar-wrap),
+[data-testid="stElementContainer"]:has(.flash-wrap),
+[data-testid="stElementContainer"]:has(.flash-slot),
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > div.st-key-menubar),
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > div.st-key-userbtn),
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > div.st-key-hidden_utils) {
+    position: absolute !important;
+    height: 0 !important; min-height: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: visible !important;
+}
+
 /* ══ PUSH CONTENT DOWN so fixed header doesn't cover it ══
    [FIX] เดิมมี .main .block-container{padding-top:8rem} ซ้อนกับ
    .block-container{padding-top:106px} → specificity ชนกัน ทำให้ระยะเพี้ยน
    ตอนนี้ประกาศค่าเดียวคุมทั้งสองตัวเลือก */
 .block-container,
 .main .block-container {
-    padding-top: 106px !important;   /* navbar(50) + menubar(44) + gap(12) */
+    padding-top: 102px !important;   /* navbar(50) + menubar(44) + เว้น 8 */
     padding-left: 1rem !important;
     padding-right: 1rem !important;
     padding-bottom: 2rem !important;
@@ -396,6 +417,13 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 
 /* ช่องว่างสำรองของป๊อปอัพ — ไม่กินพื้นที่ มีไว้ให้จำนวน element คงที่ */
 .flash-slot { display: none; }
+
+/* [FIX v20] สำรองสำหรับเบราว์เซอร์เก่าที่ไม่รองรับ :has()
+   ตัด margin ของ element ล่องหนเท่าที่ทำได้โดยไม่ต้องพึ่ง :has() */
+[data-testid="stMarkdownContainer"]:empty { display: none !important; }
+[data-testid="stElementContainer"]:empty {
+    display: none !important; height: 0 !important; margin: 0 !important;
+}
 
 /* ══ EXPANDERS ══ */
 [data-testid="stExpander"] {
