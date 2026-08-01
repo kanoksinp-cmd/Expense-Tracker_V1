@@ -747,7 +747,17 @@ def online_now():
                                (now_minus(15),)).fetchall(); c.close()
     return [r["name"] for r in rows]
 
-init_db()
+# [FIX v18] ห่อ init_db ด้วย cache_resource ให้รันครั้งเดียวต่อ process
+#   ของเดิมเรียกที่ระดับโมดูล = รันใหม่ "ทุก rerun" ซึ่งเกิดทุก 3 วินาทีต่อคน
+#   (st_autorefresh) และข้างในมีทั้ง DELETE และ CREATE INDEX ที่ต้องล็อกเขียน
+#   มี 5 คนออนไลน์ = แย่งล็อกเขียนทุก 0.6 วิ → sqlite3.OperationalError:
+#   database is locked (เจอจริงตอนเทสต์)
+@st.cache_resource(show_spinner=False)
+def _init_db_once():
+    init_db()
+    return True
+
+_init_db_once()
 
 # ─────────────────────────────────────────────────────────────
 # SESSION STATE
@@ -1459,50 +1469,30 @@ elif menu == "account":
     al,ar=st.columns([1,1])
     with al:
         if me is None:
-            # [FIX v11] เดิม "ล็อกอิน" = เลือกชื่อจาก dropdown แล้วกดเข้า
-            #   ใครมีลิงก์ก็สวมเป็นใครก็ได้ → เห็น/แก้เลขบัญชีธนาคาร อ่านแชทส่วนตัว
-            #   ลบบิลได้หมด ตอนนี้ต้องใส่ PIN 4-6 หลัก เก็บเป็น PBKDF2 hash
-            st.markdown('<div class="section-head">🔐 เข้าสู่ระบบ</div>', unsafe_allow_html=True)
+            # [FIX v18] ถอด PIN ออกตามที่ผู้ใช้ขอ — เลือกโปรไฟล์แล้วกดเข้าได้เลย
+            #   คอลัมน์ pin_hash/pin_salt และฟังก์ชัน hash_pin/check_pin ยังคงไว้
+            #   เพื่อไม่ให้ข้อมูลเดิมพัง และเปิดกลับได้โดยไม่ต้องเขียนใหม่
+            st.markdown('<div class="section-head">👤 เข้าสู่ระบบ</div>', unsafe_allow_html=True)
             lm2=st.radio("วิธีเข้าใช้งาน",["เลือกโปรไฟล์","สร้างบัญชีใหม่"],horizontal=True,
                          label_visibility="collapsed")
             if lm2=="เลือกโปรไฟล์":
                 if all_users:
                     with st.form("login_form"):
                         us2 = st.selectbox("ชื่อของคุณ:", all_users)
-                        pin_in = st.text_input("🔑 PIN:", type="password", max_chars=6,
-                                               placeholder="ตัวเลข 4-6 หลัก")
                         if st.form_submit_button("เข้าสู่ระบบ", type="primary", use_container_width=True):
-                            c=db(); row=c.execute("SELECT pin_hash,pin_salt FROM all_users WHERE name=?",(us2,)).fetchone(); c.close()
-                            if not row["pin_hash"]:
-                                # บัญชีเก่าที่สร้างก่อนมีระบบ PIN → ตั้ง PIN ครั้งแรกตรงนี้
-                                if not (pin_in.isdigit() and 4 <= len(pin_in) <= 6):
-                                    st.error("บัญชีนี้ยังไม่มี PIN — ตั้งใหม่ได้เลย (ตัวเลข 4-6 หลัก)")
-                                else:
-                                    h,sl = hash_pin(pin_in)
-                                    c=db(); c.execute("UPDATE all_users SET pin_hash=?,pin_salt=? WHERE name=?",(h,sl,us2)); c.commit(); c.close()
-                                    st.session_state["me"]=us2; heartbeat(us2)
-                                    flash(f"ตั้ง PIN แล้ว ยินดีต้อนรับ {us2}!", "ok"); st.rerun()
-                            elif check_pin(pin_in, row["pin_hash"], row["pin_salt"]):
-                                st.session_state["me"]=us2; heartbeat(us2)
-                                flash(f"ยินดีต้อนรับ, {us2}!", "ok"); st.rerun()
-                            else:
-                                st.error("❌ PIN ไม่ถูกต้อง")
-                    st.caption("บัญชีที่สร้างไว้ก่อนมีระบบ PIN จะตั้ง PIN ครั้งแรกตอนล็อกอิน")
+                            st.session_state["me"]=us2; heartbeat(us2)
+                            flash(f"ยินดีต้อนรับ, {us2}!", "ok"); st.rerun()
                 else: st.caption("ยังไม่มีบัญชี")
             else:
                 with st.form("signup_form"):
                     nn  = st.text_input("ชื่อเล่น:", placeholder="ชื่อของคุณ", max_chars=NAME_MAXLEN)
-                    p1  = st.text_input("🔑 ตั้ง PIN:", type="password", max_chars=6, placeholder="ตัวเลข 4-6 หลัก")
-                    p2  = st.text_input("🔑 ยืนยัน PIN:", type="password", max_chars=6)
                     if st.form_submit_button("สร้างบัญชี", type="primary", use_container_width=True):
                         ok, err = valid_name(nn)
-                        if not ok:                                  st.error(f"⚠️ {err}")
-                        elif not (p1.isdigit() and 4 <= len(p1) <= 6): st.error("⚠️ PIN ต้องเป็นตัวเลข 4-6 หลัก")
-                        elif p1 != p2:                              st.error("⚠️ PIN ทั้งสองช่องไม่ตรงกัน")
+                        if not ok:
+                            st.error(f"⚠️ {err}")
                         else:
-                            h,sl = hash_pin(p1)
                             try:
-                                c=db(); c.execute("INSERT INTO all_users (name,pin_hash,pin_salt) VALUES (?,?,?)",(nn.strip(),h,sl)); c.commit(); c.close()
+                                c=db(); c.execute("INSERT INTO all_users (name) VALUES (?)",(nn.strip(),)); c.commit(); c.close()
                                 st.session_state["me"]=nn.strip(); heartbeat(nn.strip())
                                 flash(f"ยินดีต้อนรับ {nn.strip()}!", "ok"); st.rerun()
                             except sqlite3.IntegrityError:
@@ -1574,24 +1564,6 @@ elif menu == "account":
                     fb=ebn if ebn!="-- เลือกธนาคาร --" else ""
                     c=db(); c.execute("UPDATE all_users SET promptpay=?,bank_name=?,bank_account=? WHERE name=?",(epp,fb,eba,me)); c.commit(); c.close()
                     flash("บันทึกแล้ว!", "ok"); st.rerun()
-
-            # ── [FIX v11] เปลี่ยน PIN ──────────────────────────
-            with st.expander("🔑 เปลี่ยน PIN"):
-                with st.form("chg_pin"):
-                    old_p = st.text_input("PIN เดิม:", type="password", max_chars=6)
-                    np1   = st.text_input("PIN ใหม่:", type="password", max_chars=6)
-                    np2   = st.text_input("ยืนยัน PIN ใหม่:", type="password", max_chars=6)
-                    if st.form_submit_button("บันทึก PIN ใหม่", type="primary", use_container_width=True):
-                        if md['pin_hash'] and not check_pin(old_p, md['pin_hash'], md['pin_salt']):
-                            st.error("❌ PIN เดิมไม่ถูกต้อง")
-                        elif not (np1.isdigit() and 4 <= len(np1) <= 6):
-                            st.error("⚠️ PIN ต้องเป็นตัวเลข 4-6 หลัก")
-                        elif np1 != np2:
-                            st.error("⚠️ PIN ใหม่ทั้งสองช่องไม่ตรงกัน")
-                        else:
-                            h,sl = hash_pin(np1)
-                            c=db(); c.execute("UPDATE all_users SET pin_hash=?,pin_salt=? WHERE name=?",(h,sl,me)); c.commit(); c.close()
-                            flash("เปลี่ยน PIN แล้ว!", "ok"); st.rerun()
 
             if st.button("🚪 ออกจากระบบ",type="secondary",use_container_width=True):
                 c=db(); c.execute("DELETE FROM online_status WHERE name=?",(me,)); c.commit(); c.close()
