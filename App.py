@@ -353,6 +353,50 @@ div.st-key-menubar .stButton > button[kind="primary"] p {
     color:#1d4ed8 !important; border-bottom-color:#1d4ed8 !important; background:#fff !important;
 }
 
+/* ══ [FIX v19] แถบแท็บที่ทำเองด้วยปุ่ม — หน้าตาให้เหมือน st.tabs เดิม ══
+   selector ใช้ [class*="st-key-tabbar"] เพื่อครอบทุกแถบโดยไม่ต้องเขียนซ้ำ */
+div[class*="st-key-tabbar"] {
+    background: #eff6ff !important;
+    border-bottom: 2px solid #93c5fd !important;
+    border-radius: 8px 8px 0 0 !important;
+    padding: 0 4px !important;
+    margin-bottom: 14px !important;
+}
+div[class*="st-key-tabbar"] div[data-testid="stHorizontalBlock"] {
+    gap: 0 !important;
+}
+div[class*="st-key-tabbar"] div[data-testid="column"] {
+    padding: 0 !important; min-width: 0 !important;
+}
+div[class*="st-key-tabbar"] .stButton { margin: 0 !important; }
+div[class*="st-key-tabbar"] .stButton button {
+    border-radius: 0 !important;
+    border: none !important;
+    border-bottom: 3px solid transparent !important;
+    background: transparent !important;
+    color: #1e40af !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    padding: 10px 6px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    box-shadow: none !important;
+}
+div[class*="st-key-tabbar"] .stButton button p { color: inherit !important; margin: 0 !important; }
+div[class*="st-key-tabbar"] .stButton button:hover {
+    background: rgba(29,78,216,.07) !important;
+}
+div[class*="st-key-tabbar"] .stButton button[kind="primary"] {
+    background: #fff !important;
+    color: #1d4ed8 !important;
+    border-bottom: 3px solid #1d4ed8 !important;
+}
+div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 !important; }
+
+/* ช่องว่างสำรองของป๊อปอัพ — ไม่กินพื้นที่ มีไว้ให้จำนวน element คงที่ */
+.flash-slot { display: none; }
+
 /* ══ EXPANDERS ══ */
 [data-testid="stExpander"] {
     background:#fff !important; border:1.5px solid #bfdbfe !important;
@@ -716,13 +760,18 @@ def flash(msg, kind="ok"):
     st.session_state["flash"] = (str(msg), kind, time.time())
 
 def render_flash():
+    """[FIX v19] วาด element เสมอ (ว่างก็วาด) เพื่อให้จำนวน element คงที่ทุก rerun
+    ถ้าโผล่บ้างหายบ้าง Streamlit จะ remount element ที่อยู่ถัดลงไป ทำให้
+    แท็บที่ผู้ใช้เลือกไว้เด้งกลับอันแรก"""
     f = st.session_state.get("flash")
     if not f:
+        st.markdown('<div class="flash-slot"></div>', unsafe_allow_html=True)
         return
     msg, kind, t0 = f
     elapsed = time.time() - t0
     if elapsed >= FLASH_SECONDS:
         st.session_state.pop("flash", None)
+        st.markdown('<div class="flash-slot"></div>', unsafe_allow_html=True)
         return
     # เลื่อน animation ให้ไปเริ่มตรงจุดที่ค้างไว้ ข้อความจึงหายตรงเวลา
     # ไม่ว่าจะเกิด rerun กี่รอบระหว่างทาง
@@ -734,6 +783,29 @@ def render_flash():
         f'<span class="flash-ico">{FLASH_ICONS.get(kind, "ℹ️")}</span>'
         f'<span>{esc(msg)}</span></div></div>',
         unsafe_allow_html=True)
+
+# ── [FIX v19] แถบแท็บที่ "จำ" แท็บที่เลือกไว้ได้ ────────────────
+#   ปัญหา: st.tabs เก็บแท็บที่เลือกไว้ฝั่งเบราว์เซอร์เท่านั้น ไม่ได้อยู่ใน
+#   session_state พอ st_autorefresh สั่ง rerun ทุก 3 วินาที แล้วโครงสร้าง
+#   element ด้านบนเปลี่ยน (ป้ายออนไลน์โผล่/หาย, ป๊อปอัพหมดเวลา) Streamlit จะ
+#   ถอด-ประกอบ st.tabs ใหม่ → เด้งกลับแท็บแรกเอง ทั้งที่ผู้ใช้ไม่ได้กดอะไร
+#   ทางแก้: ทำแท็บเองด้วยปุ่ม + session_state เหมือนแถบเมนูหลักที่ใช้ได้ดีอยู่แล้ว
+def tab_bar(state_key, labels, default=0):
+    """คืน index ของแท็บที่เลือก — สถานะอยู่ใน session_state จึงรอด rerun"""
+    if state_key not in st.session_state:
+        st.session_state[state_key] = default
+    cur = st.session_state[state_key]
+    if cur >= len(labels):
+        cur = st.session_state[state_key] = default
+    with st.container(key=f"tabbar_{state_key}"):
+        cols = st.columns(len(labels))
+        for i, (col, lb) in enumerate(zip(cols, labels)):
+            if col.button(lb, key=f"{state_key}_t{i}",
+                          type="primary" if i == cur else "secondary",
+                          use_container_width=True):
+                st.session_state[state_key] = i
+                st.rerun()
+    return st.session_state[state_key]
 
 def heartbeat(u):
     if u:
@@ -856,9 +928,11 @@ st.markdown(f"<style>div.st-key-userbtn{{{_av_vars}{_col_vars}}}</style>",
             unsafe_allow_html=True)
 
 with st.container(key="userbtn"):
-    if green_part or red_part:   # [FIX v7] ป้ายอยู่ติดปุ่มเสมอ ไม่ว่าชื่อจะสั้นหรือยาว
-        st.markdown(f'<div class="nb-badges">{green_part}{red_part}</div>',
-                    unsafe_allow_html=True)
+    # [FIX v19] วาดเสมอแม้ไม่มีป้าย — ถ้าวาดบ้างไม่วาดบ้าง จำนวน element จะ
+    #   เปลี่ยนไปมา ทำให้ Streamlit ถอด-ประกอบ element ที่อยู่ถัดลงไปใหม่
+    #   (รวมถึง st.tabs) แท็บที่เลือกไว้เลยถูกรีเซ็ตกลับอันแรก
+    st.markdown(f'<div class="nb-badges">{green_part}{red_part}</div>',
+                unsafe_allow_html=True)
     if st.button(name_str, key="btn_user",
                  type="primary" if cur_menu == "account" else "secondary"):
         st.session_state["menu"] = "account"
@@ -905,10 +979,11 @@ if menu == "home":
           </div>
         </div>""", unsafe_allow_html=True)
 
-        tab1,tab2,tab3 = st.tabs(["➕ เพิ่มบิล","📋 ประวัติ","💰 สรุปเงิน"])
+        # [FIX v19] ใช้ tab_bar แทน st.tabs — แท็บที่เลือกจะไม่เด้งกลับเองอีก
+        _ht = tab_bar("tab_home", ["➕ เพิ่มบิล", "📋 ประวัติ", "💰 สรุปเงิน"])
 
         # ── TAB 1 ──────────────────────────────────────────────
-        with tab1:
+        if _ht == 0:
             if not members:
                 st.warning("ยังไม่มีสมาชิก — ไปที่ **จัดการ** เพื่อเพิ่มสมาชิกก่อน")
             else:
@@ -944,7 +1019,7 @@ if menu == "home":
                         else: st.error("⚠️ กรอกข้อมูลให้ครบ")
 
         # ── TAB 2 ──────────────────────────────────────────────
-        with tab2:
+        if _ht == 1:
             # [FIX v11] เดิม SELECT * ดึง image_blob ของ "ทุกบิล" มาทุก 3 วินาที
             #   ทริปละ 30 บิล = โหลดรูปหลายเมกะซ้ำ ๆ ฟรี ๆ
             #   ตอนนี้ดึงแค่ flag ว่ามีรูปไหม แล้วค่อยโหลด blob ตอนกางบิลจริง
@@ -984,7 +1059,7 @@ if menu == "home":
                                 flash("ลบแล้ว", "warn"); st.rerun()
 
         # ── TAB 3 ──────────────────────────────────────────────
-        with tab3:
+        if _ht == 2:
             c = db()
             exps2 = c.execute("SELECT id,description,amount,payer_name,split_members "
                               "FROM expenses WHERE trip_id=?",(trip_id,)).fetchall()
@@ -1119,11 +1194,11 @@ if menu == "home":
 # PAGE: จัดการ (Events + Members รวมกัน)
 # ═══════════════════════════════════════════════════════
 elif menu == "manage":
-    t_event, t_member, t_trash, t_backup = st.tabs(
-        ["🗓️ Events", "👥 สมาชิก", "🗑️ ถังขยะ", "💾 สำรองข้อมูล"])
+    # [FIX v19] ใช้ tab_bar แทน st.tabs ด้วยเหตุผลเดียวกับหน้าหลัก
+    _mt = tab_bar("tab_manage", ["🗓️ Events", "👥 สมาชิก", "🗑️ ถังขยะ", "💾 สำรองข้อมูล"])
 
     # ── TAB: Events ────────────────────────────────────
-    with t_event:
+    if _mt == 0:
         left, right = st.columns([1,1])
         with left:
             st.markdown('<div class="section-head">➕ สร้าง Event ใหม่</div>', unsafe_allow_html=True)
@@ -1178,7 +1253,7 @@ elif menu == "manage":
                 st.info("ยังไม่มี Event")
 
     # ── TAB: สมาชิก ─────────────────────────────────────
-    with t_member:
+    if _mt == 1:
         if not trip_id:
             st.warning("กรุณาเลือก Event ที่แท็บ Events ก่อน")
         else:
@@ -1281,7 +1356,7 @@ elif menu == "manage":
                     st.caption("ไม่มีใครออนไลน์")
 
     # ── TAB: ถังขยะ ──────────────────────────────────────
-    with t_trash:
+    if _mt == 2:
         c=db(); dels=c.execute("SELECT * FROM trips WHERE status=1").fetchall(); c.close()
         if not dels: st.info("ถังขยะว่างเปล่า")
         else:
@@ -1300,7 +1375,7 @@ elif menu == "manage":
                     flash("ลบถาวร!", "ok"); st.rerun()
 
     # ── [FIX v11] TAB: สำรองข้อมูล ───────────────────────
-    with t_backup:
+    if _mt == 3:
         # [FIX v16] ถอดการล็อกด้วย PIN และไม่ต้องล็อกอินแล้ว ตามที่ผู้ใช้ขอ
         #   เปิดใช้ใหม่ได้โดยเปลี่ยนเป็น True
         BACKUP_REQUIRE_PIN = False
