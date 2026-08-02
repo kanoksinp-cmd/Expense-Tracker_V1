@@ -7,6 +7,7 @@ from PIL import Image
 import time
 import urllib.parse
 import base64
+import qrcode
 import html
 import hashlib
 import secrets as pysecrets
@@ -577,6 +578,15 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     color:#1d4ed8 !important; flex-shrink:0; white-space:nowrap;
 }
 
+/* ══ [FIX v22] กล่อง QR พร้อมเพย์ ══ */
+.qr-box {
+    background:#fff; border:1.5px solid #bfdbfe; border-radius:12px;
+    padding:10px 10px 8px; text-align:center;
+}
+.qr-box img { width:100%; max-width:210px; height:auto; display:block; margin:0 auto; border-radius:6px; }
+.qr-cap { font-size:11.5px; color:#374151 !important; line-height:1.55; margin-top:5px; }
+.qr-cap b { color:#dc2626 !important; font-family:var(--font-display); font-size:14px; }
+
 /* ══ CARDS ══ */
 .card {
     background:#fff; border:1.5px solid #bfdbfe; border-radius:12px;
@@ -761,6 +771,13 @@ def init_db():
         try: conn.execute(f"ALTER TABLE all_users ADD COLUMN {col} {dtype}")
         except sqlite3.OperationalError: pass
     try: conn.execute("ALTER TABLE trips ADD COLUMN trip_date TEXT")
+    except sqlite3.OperationalError: pass
+    # [FIX v22] split_detail = JSON บอกวิธีหาร (ไม่มี/ว่าง = หารเท่ากันแบบเดิม)
+    #   เก็บแยกจาก split_members เพื่อให้บิลเก่าที่มีอยู่แล้วยังอ่านได้เหมือนเดิม
+    try: conn.execute("ALTER TABLE expenses ADD COLUMN split_detail TEXT")
+    except sqlite3.OperationalError: pass
+    # [FIX v22] สลิปยืนยันการโอน
+    try: conn.execute("ALTER TABLE settlements ADD COLUMN slip_blob BLOB")
     except sqlite3.OperationalError: pass
     for col in ['is_auto','is_read','timestamp']:
         try: conn.execute(f"ALTER TABLE notifications ADD COLUMN {col} {'DATETIME DEFAULT CURRENT_TIMESTAMP' if col=='timestamp' else 'INTEGER DEFAULT 0'}")
@@ -961,6 +978,57 @@ def render_flash():
         f'<span>{esc(msg)}</span></div></div>',
         unsafe_allow_html=True)
 
+# ── [FIX v22] QR พร้อมเพย์ที่ฝังยอดเงินไว้ ────────────────────
+#   มาตรฐาน EMVCo ที่ธนาคารไทยใช้ — สแกนแล้วยอดเด้งมาเอง ไม่ต้องพิมพ์
+#   CRC เป็น CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF)
+#   ตรวจแล้วว่าให้ค่า 0x29B1 กับสตริง "123456789" ตรงตามค่าตรวจสอบมาตรฐาน
+def _pp_crc16(data):
+    crc = 0xFFFF
+    for ch in data.encode("ascii"):
+        crc ^= ch << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return f"{crc:04X}"
+
+def _pp_tlv(tag, value):
+    return f"{tag}{len(value):02d}{value}"
+
+def promptpay_target(raw):
+    """แปลงเบอร์/เลขบัตรเป็นรูปแบบที่ QR ต้องการ — คืน (tag, ค่า) หรือ (None, None)"""
+    d = "".join(ch for ch in str(raw or "") if ch.isdigit())
+    if len(d) == 13:                        return "02", d              # เลขบัตรประชาชน
+    if len(d) == 10 and d.startswith("0"):  return "01", "0066" + d[1:] # 0812345678
+    if len(d) == 9:                         return "01", "0066" + d     # 812345678
+    if len(d) == 11 and d.startswith("66"): return "01", "00" + d       # 66812345678
+    if len(d) == 15:                        return "03", d              # e-wallet
+    return None, None
+
+def promptpay_payload(raw, amount=None):
+    tag, val = promptpay_target(raw)
+    if not tag: return None
+    merchant = _pp_tlv("00", "A000000677010111") + _pp_tlv(tag, val)
+    p  = _pp_tlv("00", "01")
+    p += _pp_tlv("01", "12" if amount else "11")   # 12 = ใช้ครั้งเดียว (มียอด)
+    p += _pp_tlv("29", merchant)
+    p += _pp_tlv("53", "764")                       # THB
+    if amount: p += _pp_tlv("54", f"{float(amount):.2f}")
+    p += _pp_tlv("58", "TH") + "6304"
+    return p + _pp_crc16(p)
+
+@st.cache_data(show_spinner=False, max_entries=128)
+def promptpay_qr_uri(raw, amount=None, box=7):
+    """คืน data URI ของรูป QR — แคชไว้เพราะหน้าจอ rerun ทุก 3 วิ
+    ถ้าสร้างใหม่ทุกรอบจะเปลืองเวลาโดยเปล่าประโยชน์"""
+    payload = promptpay_payload(raw, amount)
+    if not payload: return None
+    q = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M,
+                      box_size=box, border=2)
+    q.add_data(payload); q.make(fit=True)
+    img = q.make_image(fill_color="#0f2a6b", back_color="white").convert("RGB")
+    buf = io.BytesIO(); img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
 def empty_state(icon, title, sub, btn_label=None, btn_key=None, goto=None):
     """[FIX v21] หน้าจอว่างที่บอกทางต่อ — ของเดิมใช้ st.info('ยังไม่มีบิล')
     ซึ่งบอกแค่ว่าไม่มี แต่ไม่บอกว่าให้ทำอะไรต่อ กลายเป็นทางตัน
@@ -975,14 +1043,70 @@ def empty_state(icon, title, sub, btn_label=None, btn_key=None, goto=None):
             st.rerun()
 
 
+# ── [FIX v22] หารเงิน 3 แบบ + เกลี่ยเศษสตางค์ ─────────────────
+#   ปัญหาเดิม: หารเท่ากันตรง ๆ แล้วปัดทศนิยม ทำให้ยอดรวมไม่ตรง
+#   เช่น 100 ฿ หาร 3 คน = คนละ 33.33 รวมกลับได้ 99.99 (หาย 1 สตางค์)
+#   หรือ 1000 ฿ หาร 7 คน = คนละ 142.86 รวมกลับได้ 1000.02 (เกิน 2 สตางค์)
+#   วิธีแก้: คิดเป็นสตางค์ (จำนวนเต็ม) แล้วโยนเศษที่เหลือให้ทีละคน
+#   ใครได้เศษก่อนหมุนตาม seed (id ของบิล) เพื่อไม่ให้ตกที่คนเดิมทุกครั้ง
+def split_amounts(amount, names, detail=None, seed=0):
+    """คืน dict ชื่อ -> ยอด (ปัด 2 ตำแหน่ง และรวมกันได้เท่ายอดบิลเป๊ะ)"""
+    names = [n for n in names if n]
+    if not names: return {}
+    total = int(round(float(amount) * 100))     # ทำงานเป็นสตางค์ เลี่ยงปัญหา float
+    mode, values = "equal", {}
+    if detail:
+        try:
+            d = json.loads(detail) if isinstance(detail, str) else detail
+            mode = d.get("mode", "equal"); values = d.get("values", {}) or {}
+        except (ValueError, TypeError, AttributeError):
+            mode, values = "equal", {}
+
+    if mode == "amount":
+        # ระบุยอดเอง — ส่วนที่ยังไม่ถูกระบุเอาไปหารเท่า ๆ กันในคนที่เหลือ
+        fixed = {n: int(round(float(values.get(n, 0)) * 100)) for n in names if n in values}
+        rest  = [n for n in names if n not in fixed]
+        left  = total - sum(fixed.values())
+        if rest and left > 0:
+            base, rem = divmod(left, len(rest))
+            out = dict(fixed)
+            for i, n in enumerate(rest):
+                out[n] = base + (1 if i < rem else 0)
+        else:
+            out = dict(fixed)
+            for n in rest: out[n] = 0
+            # ระบุมาไม่ครบยอด → เกลี่ยส่วนต่างให้คนที่ถูกระบุตามสัดส่วน
+            diff = total - sum(out.values())
+            if diff and fixed:
+                ks = list(fixed.keys())
+                for i in range(abs(diff)):
+                    out[ks[i % len(ks)]] += 1 if diff > 0 else -1
+    elif mode == "share":
+        w = {n: max(0.0, float(values.get(n, 1) or 0)) for n in names}
+        tw = sum(w.values())
+        if tw <= 0: w = {n: 1.0 for n in names}; tw = float(len(names))
+        raw = {n: total * w[n] / tw for n in names}
+        out = {n: int(raw[n]) for n in names}          # ปัดลงก่อน
+        rem = total - sum(out.values())                 # แล้วโยนเศษให้คนที่เศษเยอะสุด
+        order = sorted(names, key=lambda n: (-(raw[n] - int(raw[n])), n))
+        for i in range(rem): out[order[i % len(order)]] += 1
+    else:
+        base, rem = divmod(total, len(names))
+        order = names[seed % len(names):] + names[:seed % len(names)]
+        out = {n: base for n in names}
+        for i in range(rem): out[order[i]] += 1
+
+    return {n: out.get(n, 0) / 100.0 for n in names}
+
+
 def compute_net(trip_id, members):
     """[FIX v21] คำนวณยอดสุทธิรายคน — แยกออกมาเพราะต้องใช้ทั้งที่ยอดสรุปด้านบน
     ของหน้าหลัก และในแท็บสรุปเงิน ถ้าเขียนซ้ำสองที่แล้วแก้ไม่ครบจะเพี้ยนคนละทาง
     คืน (net, exps, paid_rows)"""
     c = db()
-    exps = c.execute("SELECT id,description,amount,payer_name,split_members "
+    exps = c.execute("SELECT id,description,amount,payer_name,split_members,split_detail "
                      "FROM expenses WHERE trip_id=?", (trip_id,)).fetchall()
-    paid = c.execute("SELECT id,debtor,creditor,amount,timestamp FROM settlements "
+    paid = c.execute("SELECT id,debtor,creditor,amount,timestamp,slip_blob FROM settlements "
                      "WHERE trip_id=? ORDER BY id DESC", (trip_id,)).fetchall()
     c.close()
     inv = set(members)
@@ -993,8 +1117,9 @@ def compute_net(trip_id, members):
     net = {m: 0.0 for m in inv}
     for r in exps:
         net[r['payer_name']] += r['amount']
-        sl = r['split_members'].split(","); sh = r['amount']/len(sl)
-        for m2 in sl: net[m2] -= sh
+        for m2, v in split_amounts(r['amount'], r['split_members'].split(","),
+                                   r['split_detail'], seed=r['id']).items():
+            net[m2] -= v
     for pr in paid:
         net[pr['debtor']]   += pr['amount']
         net[pr['creditor']] -= pr['amount']
@@ -1256,19 +1381,47 @@ if menu == "home":
                     nc = min(len(members),5)
                     sc = st.columns(nc)
                     split_to = [m for i,m in enumerate(members) if sc[i%nc].checkbox(m, value=True, key=f"sp_{m}")]
+
+                    # [FIX v22] หารไม่เท่ากัน — ของเดิมหารเท่ากันเสมอ ซึ่งไม่ตรงกับ
+                    #   การใช้จริง (คนไม่กินเหล้า ห้องพักคนละแบบ ใครสั่งเพิ่มจ่ายเพิ่ม)
+                    _mode = st.radio("วิธีหาร:", ["หารเท่ากัน","ระบุยอดเอง","ตามสัดส่วน"],
+                                     horizontal=True, key="new_split_mode")
+                    _vals = {}
+                    if _mode != "หารเท่ากัน":
+                        _hint = ("ใส่ยอดของใครที่รู้แน่ ๆ ที่เหลือระบบหารเท่ากันให้"
+                                 if _mode=="ระบุยอดเอง" else
+                                 "ใส่จำนวนส่วน เช่น 2 = จ่ายเป็นสองเท่าของคนที่ใส่ 1 · ใส่ 0 = ไม่ร่วมจ่าย")
+                        st.caption(_hint)
+                        _vc = st.columns(min(len(members), 4))
+                        for i, m in enumerate(members):
+                            with _vc[i % len(_vc)]:
+                                _vals[m] = st.number_input(
+                                    m, min_value=0.0,
+                                    value=(0.0 if _mode=="ระบุยอดเอง" else 1.0),
+                                    step=(10.0 if _mode=="ระบุยอดเอง" else 1.0),
+                                    key=f"sv_{m}")
+
                     if st.form_submit_button("💾 บันทึกบิล", type="primary", use_container_width=True):
                         if fup and fup.size > MAX_UPLOAD_MB*1024*1024:
                             st.error(f"⚠️ ไฟล์สลิปใหญ่เกิน {MAX_UPLOAD_MB} MB")
                         elif desc and amt>0 and split_to:
+                            if _mode == "ระบุยอดเอง":
+                                _det = json.dumps({"mode":"amount",
+                                    "values":{m:v for m,v in _vals.items() if m in split_to and v>0}})
+                            elif _mode == "ตามสัดส่วน":
+                                _det = json.dumps({"mode":"share",
+                                    "values":{m:v for m,v in _vals.items() if m in split_to}})
+                            else:
+                                _det = None
                             blob = compress_image(fup)
                             c = db()
-                            c.execute("INSERT INTO expenses (trip_id,description,amount,payer_name,split_members,image_blob) VALUES (?,?,?,?,?,?)",
-                                      (trip_id,desc,amt,payer,",".join(split_to),blob))
+                            cur_ = c.execute("INSERT INTO expenses (trip_id,description,amount,payer_name,split_members,image_blob,split_detail) VALUES (?,?,?,?,?,?,?)",
+                                      (trip_id,desc,amt,payer,",".join(split_to),blob,_det))
                             c.commit()
-                            sh = amt/len(split_to)
+                            _shares = split_amounts(amt, split_to, _det, seed=cur_.lastrowid or 0)
                             for m2 in split_to:
                                 if m2!=payer:
-                                    msg=f"📌 บิลใหม่: '{desc}'\n💰 {amt:,.2f} บาท | จ่ายโดย: {payer}\n💸 ส่วนคุณ: {sh:,.2f} บาท"
+                                    msg=f"📌 บิลใหม่: '{desc}'\n💰 {amt:,.2f} บาท | จ่ายโดย: {payer}\n💸 ส่วนคุณ: {_shares.get(m2,0):,.2f} บาท"
                                     c.execute("INSERT INTO notifications (trip_id,to_user,from_user,message,is_auto,is_read,timestamp) VALUES (?,?,'ระบบสรุปยอด',?,1,0,?)",(trip_id,m2,msg,now_str()))
                             c.commit(); c.close()
                             flash(f"บันทึก '{desc}' แล้ว!", "ok"); st.rerun()
@@ -1282,7 +1435,7 @@ if menu == "home":
             # [FIX v21] ดึง thumbnail เล็ก ๆ มาด้วย (ไม่ใช่รูปเต็ม) เพื่อโชว์ในรายการ
             #   สลิปคือหลักฐานจริงของโดเมนนี้ เดิมต้องกดเปิด expander ทีละใบถึงจะเห็น
             c = db(); exps = c.execute(
-                "SELECT id,description,amount,payer_name,split_members,image_blob,"
+                "SELECT id,description,amount,payer_name,split_members,split_detail,image_blob,"
                 "       (image_blob IS NOT NULL) AS has_img "
                 "FROM expenses WHERE trip_id=? ORDER BY id DESC",(trip_id,)).fetchall(); c.close()
             if not exps:
@@ -1291,7 +1444,11 @@ if menu == "home":
                             "➕ ไปเพิ่มบิล", "go_hist_add", ("tab_home", 0))
             else:
                 for row in exps:
-                    sl = row['split_members'].split(","); sh = row['amount']/len(sl)
+                    sl = row['split_members'].split(",")
+                    # [FIX v22] ใช้ split_amounts เพื่อให้ตรงกับที่คำนวณจริง
+                    _sh_map = split_amounts(row['amount'], sl, row['split_detail'], seed=row['id'])
+                    _uneq = len(set(round(v,2) for v in _sh_map.values())) > 1
+                    _mine = _sh_map.get(me)
                     # แถบสรุปพร้อม thumbnail สลิป — สแกนได้เร็วโดยไม่ต้องกางทีละใบ
                     _th = avatar_thumb_uri(row['image_blob'], 96) if row['has_img'] else None
                     _slip = (f'<div class="bill-slip" style="background-image:url({_th});"></div>'
@@ -1300,8 +1457,10 @@ if menu == "home":
                         '<div class="bill-row">' + _slip +
                         '<div class="bill-mid">'
                         f'<div class="bill-desc">{esc(row["description"])}</div>'
-                        f'<div class="bill-meta">จ่ายโดย {esc(row["payer_name"])} · หาร {len(sl)} คน '
-                        f'· คนละ {sh:,.2f} ฿</div></div>'
+                        f'<div class="bill-meta">จ่ายโดย {esc(row["payer_name"])} · หาร {len(sl)} คน · '
+                        + (f'ส่วนคุณ {_mine:,.2f} ฿' if _mine is not None
+                           else ("หารไม่เท่ากัน" if _uneq else f"คนละ {row['amount']/len(sl):,.2f} ฿"))
+                        + '</div></div>'
                         f'<div class="bill-amt money">{row["amount"]:,.2f} ฿</div>'
                         '</div>', unsafe_allow_html=True)
                     with st.expander("แก้ไขบิลนี้"):
@@ -1310,7 +1469,9 @@ if menu == "home":
                             if row['has_img']:
                                 st.image(row['image_blob'], use_container_width=True)
                             else: st.markdown('<div style="background:#dbeafe;border-radius:8px;height:90px;display:flex;align-items:center;justify-content:center;color:#374151;font-size:13px;">ไม่มีสลิป</div>',unsafe_allow_html=True)
-                            st.markdown(f"**{len(sl)} คน** หาร · คนละ **{sh:,.2f} ฿**")
+                            st.markdown("**ส่วนของแต่ละคน**")
+                            for _n, _v in _sh_map.items():
+                                st.markdown(f"- {esc(_n)} — **{_v:,.2f} ฿**")
                         with b2:
                             with st.form(f"ed_{row['id']}"):
                                 ud = st.text_input("รายการ:", value=row['description'])
@@ -1386,26 +1547,63 @@ if menu == "home":
                         + avatar_html(cn, avatars.get(cn), size=44, font=17)
                         + f'<div class="flow-nm">{esc(cn)}{"<br><b>(คุณ)</b>" if cn==me else ""}</div></div>'
                         '</div>', unsafe_allow_html=True)
-                    if pp or ba:
-                        pc=st.columns(2)
-                        if pp: pc[0].markdown(f"📱 **พร้อมเพย์ {cn}**"); pc[0].code(pp)
-                        if ba: pc[1].markdown(f"🏦 **{bn or 'บัญชี'} {cn}**"); pc[1].code(ba)
-                    else: st.warning(f"⚠️ {cn} ยังไม่ได้บันทึกบัญชี")
+                    # [FIX v22] QR พร้อมเพย์ที่ฝังยอดไว้แล้ว — สแกนแล้วยอดเด้งมาเอง
+                    #   ไม่ต้อง copy เบอร์ไปพิมพ์ยอดเองในแอปธนาคาร (พิมพ์ผิดง่าย)
+                    _qr = promptpay_qr_uri(pp, at) if pp else None
+                    _qc = st.columns([1, 1.25]) if _qr else [st.container()]
+                    if _qr:
+                        with _qc[0]:
+                            st.markdown(
+                                f'<div class="qr-box"><img src="{_qr}" alt="QR พร้อมเพย์">'
+                                f'<div class="qr-cap">สแกนจ่าย {esc(cn)}<br>'
+                                f'<b>{at:,.2f} ฿</b> (ยอดใส่มาให้แล้ว)</div></div>',
+                                unsafe_allow_html=True)
+                    with (_qc[1] if _qr else _qc[0]):
+                        if pp:
+                            st.markdown(f"📱 **พร้อมเพย์ {esc(cn)}**"); st.code(pp)
+                        if ba:
+                            st.markdown(f"🏦 **{esc(bn or 'บัญชี')} {esc(cn)}**"); st.code(ba)
+                        if not (pp or ba):
+                            st.warning(f"{cn} ยังไม่ได้บันทึกบัญชี — บอกให้ไปกรอกที่เมนูโปรไฟล์")
+
                     # [FIX v11] ปิดหนี้ได้จริง — บันทึกลงตาราง settlements
                     #   ให้เฉพาะลูกหนี้หรือเจ้าหนี้ของรายการนั้นกดได้ คนอื่นกดแทนไม่ได้
                     if me in (dn, cn):
-                        if st.button(f"✅ ชำระแล้ว ({at:,.2f} ฿)", key=f"pay_{dn}_{cn}_{trip_id}",
-                                     type="secondary", use_container_width=True):
-                            cp=db()
-                            cp.execute("INSERT INTO settlements (trip_id,debtor,creditor,amount,timestamp) VALUES (?,?,?,?,?)",
-                                       (trip_id,dn,cn,round(at,2),now_str()))
-                            cp.execute("INSERT INTO notifications (trip_id,to_user,from_user,message,is_auto,is_read,timestamp) VALUES (?,?,'ระบบสรุปยอด',?,1,0,?)",
-                                       (trip_id, cn if me==dn else dn,
-                                        f"✅ บันทึกการชำระเงิน\n💳 {dn} → {cn}\n💰 {at:,.2f} บาท", now_str()))
-                            cp.commit(); cp.close()
-                            flash("บันทึกการชำระแล้ว", "ok"); st.rerun()
+                        # [FIX v22] แนบสลิปตอนกดชำระ — ตรงกับพฤติกรรมจริงที่ทุกคน
+                        #   ส่งสลิปเข้ากลุ่มอยู่แล้ว และทำให้เคลียร์กันได้สนิทกว่าเชื่อใจล้วน
+                        _pk = f"{dn}_{cn}_{trip_id}"
+                        _slip = st.file_uploader(f"📎 แนบสลิปการโอน (ถ้ามี)", type=['jpg','jpeg','png'],
+                                                 key=f"sl_{_pk}")
+                        _b1, _b2 = st.columns([2, 1])
+                        if _b1.button(f"✅ ชำระแล้ว ({at:,.2f} ฿)", key=f"pay_{_pk}",
+                                      type="primary", use_container_width=True):
+                            if _slip and _slip.size > MAX_UPLOAD_MB*1024*1024:
+                                st.error(f"⚠️ ไฟล์ใหญ่เกิน {MAX_UPLOAD_MB} MB")
+                            else:
+                                cp=db()
+                                cp.execute("INSERT INTO settlements (trip_id,debtor,creditor,amount,timestamp,slip_blob) VALUES (?,?,?,?,?,?)",
+                                           (trip_id,dn,cn,round(at,2),now_str(),compress_image(_slip)))
+                                cp.execute("INSERT INTO notifications (trip_id,to_user,from_user,message,is_auto,is_read,timestamp) VALUES (?,?,'ระบบสรุปยอด',?,1,0,?)",
+                                           (trip_id, cn if me==dn else dn,
+                                            f"✅ บันทึกการชำระเงิน\n💳 {dn} → {cn}\n💰 {at:,.2f} บาท"
+                                            + ("\n📎 แนบสลิปไว้แล้ว" if _slip else ""), now_str()))
+                                cp.commit(); cp.close()
+                                flash("บันทึกการชำระแล้ว", "ok"); st.rerun()
+                        # [FIX v22] ปุ่มทวงเงิน — เจ้าหนี้กดแล้วส่งเข้าแชทให้ลูกหนี้เลย
+                        if me == cn:
+                            if _b2.button("🔔 ทวง", key=f"nudge_{_pk}", use_container_width=True):
+                                _msg = (f"🔔 แจ้งเตือนยอดค้าง\n💳 {dn} → {cn}\n💰 {at:,.2f} บาท")
+                                if pp: _msg += f"\n📱 พร้อมเพย์: {pp}"
+                                if ba: _msg += f"\n🏦 {bn or 'บัญชี'}: {ba}"
+                                _msg += "\n(ดู QR พร้อมยอดได้ที่แท็บสรุปเงิน)"
+                                cn2=db()
+                                cn2.execute("INSERT INTO notifications (trip_id,to_user,from_user,message,is_auto,is_read,timestamp) VALUES (?,?,?,?,0,0,?)",
+                                            (trip_id, dn, me, _msg, now_str()))
+                                cn2.commit(); cn2.close()
+                                flash(f"ส่งข้อความทวงถึง {dn} แล้ว", "ok"); st.rerun()
                     else:
                         st.caption("รายการนี้ไม่เกี่ยวกับคุณ — ให้คู่กรณีเป็นคนกดยืนยัน")
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
                     final_tx.append((dn,cn,at))
 
                 # ── [FIX v11] ประวัติการชำระ + ยกเลิกได้ ──────────
@@ -1413,10 +1611,14 @@ if menu == "home":
                     with st.expander(f"🧾 ประวัติการชำระ ({len(paid_rows)} รายการ)"):
                         for pr in paid_rows:
                             h1,h2 = st.columns([4,1])
+                            _has_slip = pr['slip_blob'] is not None   # [FIX v22]
                             h1.markdown(f"✅ **{esc(pr['debtor'])} → {esc(pr['creditor'])}** "
-                                        f"· {pr['amount']:,.2f} ฿  \n"
+                                        f"· {pr['amount']:,.2f} ฿{'  📎' if _has_slip else ''}  \n"
                                         f"<span style='font-size:11px;color:#6b7280;'>{esc(pr['timestamp'])}</span>",
                                         unsafe_allow_html=True)
+                            if _has_slip:
+                                with st.expander("ดูสลิป"):
+                                    st.image(pr['slip_blob'], width=260)
                             if h2.button("ยกเลิก", key=f"unpay_{pr['id']}"):
                                 cu=db(); cu.execute("DELETE FROM settlements WHERE id=?",(pr['id'],)); cu.commit(); cu.close()
                                 flash("ยกเลิกการชำระแล้ว", "ok"); st.rerun()
@@ -1426,8 +1628,15 @@ if menu == "home":
                 if has_date: lm+=f"📅 {cur_date}\n"
                 lm+="========================\n"; tot=0.0
                 for i2,r2 in enumerate(exps2,1):
-                    sl2=r2['split_members'].split(","); sh2=r2['amount']/len(sl2)
-                    lm+=f"{i2}. {r2['description']} | {r2['amount']:,.2f} ฿ | {r2['payer_name']}\n   คนละ {sh2:,.2f} ฿\n"; tot+=r2['amount']
+                    sl2=r2['split_members'].split(",")
+                    _m2=split_amounts(r2['amount'], sl2, r2['split_detail'], seed=r2['id'])
+                    _uq = len(set(round(v,2) for v in _m2.values())) > 1
+                    lm+=f"{i2}. {r2['description']} | {r2['amount']:,.2f} ฿ | {r2['payer_name']}\n"
+                    if _uq:   # [FIX v22] หารไม่เท่ากันต้องแจกแจงรายคน ไม่งั้นอ่านไม่รู้เรื่อง
+                        for _n,_v in _m2.items(): lm+=f"   - {_n} {_v:,.2f} ฿\n"
+                    else:
+                        lm+=f"   คนละ {list(_m2.values())[0]:,.2f} ฿\n"
+                    tot+=r2['amount']
                 lm+=f"รวม: {tot:,.2f} ฿\n========================\n"
                 for dn2,cn2,am2 in final_tx:
                     lm+=f"💳 {dn2} → {cn2} = {am2:,.2f} ฿\n"
