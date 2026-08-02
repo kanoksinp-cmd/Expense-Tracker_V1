@@ -106,11 +106,29 @@ html,body,
    วิธีแก้: วางแผ่นทึบสีพื้นหลังคลุมตั้งแต่ 0 ถึง 104px ไว้ใต้แถบบนแต่เหนือเนื้อหา */
 .hdr-fill {
     position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 104px;
+    top: -2px; left: 0; right: 0;   /* -2px กันเส้นบางที่ขอบบนสุดตอน zoom ไม่ลงตัว */
+    height: 108px;
     background: #dbeafe;
-    z-index: 2147483640;      /* ต่ำกว่า navbar/menubar แต่สูงกว่าเนื้อหา */
+    z-index: 2147483645;      /* [FIX v26] ดันขึ้นให้ชิดใต้ menubar กันเนื้อหาแทรก */
     pointer-events: none;
+}
+
+/* ══ [FIX v26] อีกสาเหตุของการกระพริบ: scroll anchoring ══
+   หน้าจอ rerun ทุก 3 วินาที (st_autorefresh) ทุกครั้งที่ DOM ถูกวาดใหม่
+   เบราว์เซอร์จะพยายาม "ยึด" ตำแหน่งสกรอลล์กับ element ที่มองเห็นอยู่
+   ถ้าความสูงเปลี่ยนแม้แต่นิดเดียว มันจะเลื่อนชดเชยให้ = เห็นเป็นการกระตุก
+   ปิดกลไกนี้แล้วตำแหน่งสกรอลล์จะนิ่งระหว่าง rerun */
+html, body,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+.block-container, .main .block-container {
+    overflow-anchor: none !important;
+}
+
+/* กันการเด้ง (rubber-band) ตอนเลื่อนสุดขอบบนบนมือถือ ซึ่งทำให้แถบบนแวบ */
+html, body {
+    overscroll-behavior-y: none;
 }
 
 /* ดันขึ้น GPU layer — ลดการวาดซ้ำระหว่างเลื่อน ซึ่งเป็นอีกสาเหตุของการกระพริบ
@@ -704,10 +722,15 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 #   บังคับ render เป็น <iframe> สีขาวลงในหน้าจริง ๆ (คือ "แถบขาว" ที่โผล่ด้านบน)
 #   จึงต้องยัดไว้ในคอนเทนเนอร์ที่ถูกดันออกนอก layout
 # ─────────────────────────────────────────────────────────────
+# [FIX v26] ปรับรอบรีเฟรชได้จากที่เดียว — ถ้ายังรู้สึกว่าหน้าจอกระตุก
+#   ให้เพิ่มตัวเลขนี้ (เช่น 8000 = 8 วินาที) หรือใส่ 0 เพื่อปิดการรีเฟรชอัตโนมัติ
+#   ทุกครั้งที่รีเฟรช Streamlit จะวาด DOM ใหม่ทั้งหน้า ยิ่งถี่ยิ่งมีโอกาสเห็นสะดุด
+#   หมายเหตุ: ถ้าปิด สถานะ "ออนไลน์" ของเพื่อนจะไม่อัปเดตเองจนกว่าจะกดอะไรสักอย่าง
+AUTOREFRESH_MS = 3000
+
 with st.container(key="hidden_utils"):
-    # interval 3000ms — เดิม 1000ms ทำให้กะพริบและ query DB ถี่เกินจำเป็น
-    # (เกณฑ์ online คือ 15 วินาที จึงยังเหลือ margin เยอะ)
-    st_autorefresh(interval=3000, limit=None, key="live_refresh")
+    if AUTOREFRESH_MS:
+        st_autorefresh(interval=AUTOREFRESH_MS, limit=None, key="live_refresh")
 
 # ─────────────────────────────────────────────────────────────
 # DATABASE
@@ -1801,20 +1824,32 @@ elif menu == "manage":
                                 flash("แก้ไขแล้ว!", "ok"); st.rerun()
                             except sqlite3.IntegrityError: st.error("❌ ชื่อซ้ำ")
                         else: st.error(f"⚠️ {err_r}")
-                # [FIX v24] ลบ Event ได้เฉพาะคนที่สร้างเท่านั้น
-                #   Event เก่าที่ไม่มีข้อมูลผู้สร้าง (created_by = NULL) ยังลบได้
-                #   เพื่อไม่ให้ของเดิมค้างจนลบไม่ออก แต่จะบอกให้ทราบว่าไม่ระบุผู้สร้าง
-                _can_del = (cur_owner is None) or (cur_owner == me)
-                if _can_del:
+                # [FIX v26] ลบ Event ได้เฉพาะผู้สร้างเท่านั้น — บังคับเข้มขึ้น
+                #   ของเดิมยกเว้นให้ Event เก่าที่ created_by ว่าง (ใครก็ลบได้)
+                #   แต่ในเครื่องจริง Event ทั้งหมดที่มีอยู่ก่อนคือค่าว่าง
+                #   กฎเลยไม่มีผลอะไรเลย ตอนนี้ Event ไร้เจ้าของจะลบไม่ได้
+                #   จนกว่าจะมีคนกดรับเป็นเจ้าของก่อน (บันทึกไว้ว่าใครรับ)
+                if cur_owner == me:
                     if st.button("🗑️ ลบ Event นี้", type="secondary", use_container_width=True):
                         c=db(); c.execute("UPDATE trips SET status=1 WHERE id=?",(trip_id,)); c.commit(); c.close()
                         st.session_state["trip_id"]=None; flash("ย้ายสู่ถังขยะ", "ok"); st.rerun()
-                    if cur_owner is None:
-                        st.caption("Event นี้สร้างก่อนระบบบันทึกผู้สร้าง — ใครก็ลบได้")
-                else:
+                elif cur_owner:
                     st.button("🗑️ ลบ Event นี้", type="secondary",
                               use_container_width=True, disabled=True)
                     st.caption(f"🔒 ลบได้เฉพาะผู้สร้าง Event นี้ ({esc(cur_owner)}) เท่านั้น")
+                else:
+                    st.button("🗑️ ลบ Event นี้", type="secondary",
+                              use_container_width=True, disabled=True)
+                    st.caption("🔒 Event นี้ยังไม่มีเจ้าของ (สร้างก่อนระบบบันทึกผู้สร้าง) — "
+                               "ต้องมีคนรับเป็นเจ้าของก่อนถึงจะลบได้")
+                    if st.button("🙋 รับเป็นเจ้าของ Event นี้", key="claim_ev",
+                                 use_container_width=True):
+                        c=db()
+                        # เขียนเฉพาะตอนที่ยังว่างจริง กันสองคนกดพร้อมกันแล้วทับกัน
+                        c.execute("UPDATE trips SET created_by=? WHERE id=? AND "
+                                  "(created_by IS NULL OR created_by='')", (me, trip_id))
+                        c.commit(); c.close()
+                        flash(f"{me} เป็นเจ้าของ Event นี้แล้ว", "ok"); st.rerun()
 
         with right:
             st.markdown('<div class="section-head">🗺️ เลือก Event</div>', unsafe_allow_html=True)
@@ -1960,11 +1995,14 @@ elif menu == "manage":
                 # [FIX v24] ลบถาวรก็ต้องเป็นผู้สร้างเท่านั้น (กู้คืนใครก็ทำได้)
                 try: _own = dt['created_by']
                 except (KeyError, IndexError): _own = None
-                _mine = (_own is None) or (_own == me)
+                _mine = (_own == me)   # [FIX v26] ไร้เจ้าของ = ลบถาวรไม่ได้
                 dc1,dc2,dc3=st.columns([3,1,1])
                 dc1.markdown(f"✈️ **{esc(dn2)}**" +
                              (f"  \n<span style='font-size:11px;color:#6b7280;'>สร้างโดย {esc(_own)}</span>"
-                              if _own else ""), unsafe_allow_html=True)
+                              if _own else
+                              "  \n<span style='font-size:11px;color:#6b7280;'>ไม่มีเจ้าของ — "
+                              "กู้คืนแล้วไปกดรับเป็นเจ้าของก่อนจึงจะลบถาวรได้</span>"),
+                             unsafe_allow_html=True)
                 if dc2.button("กู้คืน",key=f"rs_{dt['id']}",type="primary"):
                     c=db(); c.execute("UPDATE trips SET status=0 WHERE id=?",(dt['id'],)); c.commit(); c.close()
                     flash("กู้คืนแล้ว!", "ok"); st.rerun()
