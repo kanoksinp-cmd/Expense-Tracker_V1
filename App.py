@@ -1183,17 +1183,51 @@ def online_now():
                                (now_minus(15),)).fetchall(); c.close()
     return [r["name"] for r in rows]
 
-# [FIX v18] ห่อ init_db ด้วย cache_resource ให้รันครั้งเดียวต่อ process
-#   ของเดิมเรียกที่ระดับโมดูล = รันใหม่ "ทุก rerun" ซึ่งเกิดทุก 3 วินาทีต่อคน
-#   (st_autorefresh) และข้างในมีทั้ง DELETE และ CREATE INDEX ที่ต้องล็อกเขียน
-#   มี 5 คนออนไลน์ = แย่งล็อกเขียนทุก 0.6 วิ → sqlite3.OperationalError:
-#   database is locked (เจอจริงตอนเทสต์)
-@st.cache_resource(show_spinner=False)
-def _init_db_once():
-    init_db()
-    return True
+# [FIX v23] ตรวจ schema ก่อนแล้วค่อยตัดสินใจว่าจะ init ไหม
+#
+#   ประวัติของบั๊กนี้:
+#   v18 ห่อ init_db ด้วย @st.cache_resource เพื่อแก้ "database is locked"
+#   (ของเดิมเรียกทุก rerun = ทุก 3 วิต่อคน และข้างในมี DELETE + CREATE INDEX
+#   ที่ต้องล็อกเขียน) — แก้ปัญหานั้นได้จริง แต่สร้างปัญหาใหม่ที่ร้ายกว่า:
+#   cache_resource อยู่ยาวตลอดอายุ process พอ deploy โค้ดใหม่ที่เพิ่มคอลัมน์
+#   แล้ว Streamlit โหลดสคริปต์ใหม่โดยไม่ได้รีสตาร์ท process แคชยังอยู่
+#   → init_db() ไม่ถูกเรียก → ALTER TABLE ตัวใหม่ไม่ทำงาน → คอลัมน์ไม่มีจริง
+#   → sqlite3.OperationalError: no such column: split_detail
+#
+#   วิธีนี้แก้ได้ทั้งสองอย่าง: PRAGMA table_info เป็นการ "อ่าน" ล้วน ไม่ต้องล็อกเขียน
+#   จึงเรียกทุก rerun ได้โดยไม่แย่งล็อก และถ้าคอลัมน์ไหนขาดจะ init ให้เองทันที
+#   ไม่ต้องพึ่งการจำบัมพ์เลขเวอร์ชันด้วยมือ
+SCHEMA_COLS = {
+    "all_users":     {"promptpay","bank_name","bank_account","avatar_blob"},
+    "trips":         {"trip_date"},
+    "expenses":      {"split_detail"},
+    "settlements":   {"slip_blob"},
+    "notifications": {"is_auto","is_read","timestamp"},
+    "members":       {"trip_id","name"},
+    "online_status": {"name","last_seen"},
+}
 
-_init_db_once()
+def schema_ready():
+    """True เมื่อทุกตารางและคอลัมน์ที่โค้ดต้องใช้มีครบแล้ว"""
+    try:
+        c = db()
+        try:
+            for tbl, need in SCHEMA_COLS.items():
+                cols = {r[1] for r in c.execute(f"PRAGMA table_info({tbl})").fetchall()}
+                if not cols or not need <= cols:
+                    return False
+            return True
+        finally:
+            c.close()
+    except sqlite3.Error:
+        return False
+
+if not schema_ready():
+    init_db()
+    if not schema_ready():
+        st.error("⚠️ ฐานข้อมูลไม่สมบูรณ์ — กรุณากู้คืนจากไฟล์สำรอง "
+                 "หรือแจ้งผู้ดูแลระบบ")
+        st.stop()
 
 # ─────────────────────────────────────────────────────────────
 # SESSION STATE
