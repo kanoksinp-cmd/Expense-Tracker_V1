@@ -131,6 +131,14 @@ html,body,
     top: 8px !important;
     right: 12px !important;
 }
+
+/* [FIX v33] ถอดปุ่มขยายเต็มจอ "เฉพาะแผนที่" ตามที่ผู้ใช้ขอ
+   แผนที่เลื่อน/ซูมได้ในกรอบอยู่แล้ว ปุ่มเต็มจอจึงไม่ได้ช่วยอะไร
+   แต่ยังเก็บปุ่มไว้ให้รูปสลิป เพราะสลิปตัวหนังสือเล็ก ต้องขยายดูจริง ๆ */
+[data-testid="stFullScreenFrame"]:has([data-testid="stDeckGlJsonChart"]) [data-testid="stElementToolbar"],
+[data-testid="stFullScreenFrame"]:has(.stDeckGlJsonChart) [data-testid="stElementToolbar"] {
+    display: none !important;
+}
 /* ตอนเต็มจอ ให้เนื้อหาข้างในเลื่อนได้และไม่ถูกแถบบนเราบัง */
 [data-testid="stFullScreenFrame"] { z-index: auto; }
 
