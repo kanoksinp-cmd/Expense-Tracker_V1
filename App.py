@@ -8,6 +8,7 @@ import time
 import urllib.parse
 import base64
 import re
+import math
 import requests
 import qrcode
 import html
@@ -780,6 +781,26 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     .cat-amt { width:64px; font-size:13px; }
 }
 
+/* ══ [FIX v35] เข็มทิศออฟไลน์ ══ */
+.nav-box {
+    display:flex; align-items:center; gap:16px;
+    background:#f5f9ff; border:2px solid #1d4ed8; border-radius:14px;
+    padding:14px 18px; margin:10px 0 4px;
+}
+.nav-arrow {
+    font-size:38px; line-height:1; color:#1d4ed8 !important;
+    flex-shrink:0; transform-origin:center;
+    /* ➤ ชี้ไปทางขวาโดยธรรมชาติ หมุน -90 เพื่อให้ 0° = ชี้ขึ้น (ทิศเหนือ) */
+    margin-top:-2px;
+}
+.nav-mid { flex:1; min-width:0; }
+.nav-dist {
+    font-family:var(--font-display); font-weight:700; font-size:26px;
+    color:#000 !important; line-height:1.2;
+}
+.nav-sub { font-size:12.5px; color:#374151 !important; line-height:1.5; }
+.nav-hint { font-size:11px; color:#6b7280 !important; line-height:1.6; margin-bottom:10px; }
+
 /* ══ CARDS ══ */
 .card {
     background:#fff; border:1.5px solid #bfdbfe; border-radius:12px;
@@ -958,6 +979,10 @@ def init_db():
     cur.execute('CREATE TABLE IF NOT EXISTS settlements (id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER, debtor TEXT, creditor TEXT, amount REAL, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)')
     cur.execute('CREATE TABLE IF NOT EXISTS online_status (name TEXT PRIMARY KEY, last_seen DATETIME)')
     # [FIX v28] ของที่ต้องหิ้วไปแคมป์ — ใครรับหน้าที่อะไร
+    # [FIX v35] ตำแหน่งล่าสุดของสมาชิกในทริป — ไว้หากันที่ลานกางเต็นท์
+    cur.execute("""CREATE TABLE IF NOT EXISTS locations (
+        trip_id INTEGER, name TEXT, lat REAL, lon REAL, acc REAL,
+        updated_at TEXT, PRIMARY KEY (trip_id, name))""")
     cur.execute("""CREATE TABLE IF NOT EXISTS packing (
         id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER,
         item TEXT NOT NULL, qty TEXT, assignee TEXT,
@@ -1116,6 +1141,7 @@ def rename_user(old, new):
 
 # ── [FIX v11] สำรอง / กู้คืนข้อมูล ────────────────────────────
 BACKUP_TABLES = ["all_users","trips","members","expenses","settlements","notifications","packing"]
+# หมายเหตุ: ไม่สำรอง locations เพราะเป็นตำแหน่งชั่วคราว หมดความหมายเมื่อจบทริป
 
 def export_backup():
     """[FIX v11] Streamlit Community Cloud ใช้ filesystem ชั่วคราว —
@@ -1293,6 +1319,43 @@ def fetch_forecast(lat, lon, days=7):
         return True, d
     except requests.RequestException as e:
         return False, f"ต่ออินเทอร์เน็ตไม่ได้: {e}"
+
+# ── [FIX v35] ระยะทางและทิศทาง ────────────────────────────────
+#   คำนวณเองทั้งหมด ไม่ต้องเรียก API — ใช้ได้แม้ไม่มีสัญญาณเน็ต
+#   ซึ่งเป็นสถานการณ์ปกติที่ลานกางเต็นท์
+def haversine_m(lat1, lon1, lat2, lon2):
+    """ระยะทางเส้นตรงบนผิวโลก หน่วยเมตร"""
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1); dl = math.radians(lon2 - lon1)
+    a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+    return 2 * R * math.asin(math.sqrt(a))
+
+def bearing_deg(lat1, lon1, lat2, lon2):
+    """ทิศจากจุดแรกไปจุดที่สอง 0=เหนือ 90=ตะวันออก"""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lon2 - lon1)
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1)*math.sin(p2) - math.sin(p1)*math.cos(p2)*math.cos(dl)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+COMPASS = ["เหนือ","ตะวันออกเฉียงเหนือ","ตะวันออก","ตะวันออกเฉียงใต้",
+           "ใต้","ตะวันตกเฉียงใต้","ตะวันตก","ตะวันตกเฉียงเหนือ"]
+
+def compass_name(deg):
+    return COMPASS[int((deg + 22.5) % 360 // 45)]
+
+def fmt_dist(m):
+    if m < 1000: return f"{m:,.0f} ม."
+    return f"{m/1000:,.2f} กม."
+
+def walk_time(m):
+    """เวลาเดินโดยประมาณที่ 4.5 กม./ชม. — ใช้กะเวลาก่อนมืด"""
+    mins = m / 75.0
+    if mins < 1: return "ถึงแล้ว"
+    if mins < 60: return f"เดินราว {mins:.0f} นาที"
+    return f"เดินราว {mins/60:.1f} ชม."
+
 
 def parse_latlon(text):
     """รับได้ทั้ง '18.79, 98.98' และลิงก์ Google Maps ที่มี @lat,lon หรือ q=lat,lon
@@ -1678,6 +1741,7 @@ SCHEMA_COLS = {
     "members":       {"trip_id","name"},
     "online_status": {"name","last_seen"},
     "packing":       {"trip_id","item","assignee","done","expense_id"},
+    "locations":     {"trip_id","name","lat","lon","updated_at"},
 }
 
 def schema_ready():
@@ -2364,6 +2428,57 @@ if menu == "home":
             _pname = _tr["place_name"] if _tr else None
             _lat, _lon = (_tr["lat"], _tr["lon"]) if _tr else (None, None)
 
+            # ── [FIX v35] GPS: อ่านตำแหน่งปัจจุบันจากเบราว์เซอร์ ──────
+            #   ต้องใช้ไลบรารีเสริมเพราะ Streamlit เองอ่าน GPS ไม่ได้
+            #   ถ้าไม่ได้ติดตั้งไว้ ส่วนอื่นยังใช้ได้ปกติ แค่กรอกพิกัดเอง
+            st.markdown('<div class="section-head">🛰️ ตำแหน่งของฉัน</div>',
+                        unsafe_allow_html=True)
+            _my_lat = _my_lon = _my_acc = None
+            try:
+                from streamlit_geolocation import streamlit_geolocation
+                _gp = streamlit_geolocation()
+                if _gp and _gp.get("latitude") is not None:
+                    _my_lat, _my_lon = float(_gp["latitude"]), float(_gp["longitude"])
+                    _my_acc = _gp.get("accuracy")
+                    st.session_state["my_gps"] = (_my_lat, _my_lon, _my_acc)
+                else:
+                    st.caption("กดปุ่มด้านบนแล้วอนุญาตให้เบราว์เซอร์เข้าถึงตำแหน่ง")
+            except ImportError:
+                st.info("ยังไม่ได้ติดตั้ง `streamlit-geolocation` — "
+                        "เพิ่มบรรทัดนี้ใน requirements.txt แล้ว reboot app "
+                        "จึงจะอ่านตำแหน่งอัตโนมัติได้ (ระหว่างนี้กรอกพิกัดเองได้)")
+            except Exception as _e:
+                st.warning(f"อ่านตำแหน่งไม่ได้: {_e}")
+
+            # ใช้ค่าที่เคยอ่านได้ในรอบก่อน (component คืนค่าเฉพาะรอบที่กด)
+            if _my_lat is None and st.session_state.get("my_gps"):
+                _my_lat, _my_lon, _my_acc = st.session_state["my_gps"]
+
+            if _my_lat is not None:
+                st.markdown(
+                    f'<div class="camp-loc"><div class="camp-pin">🛰️</div><div>'
+                    f'<div class="camp-nm">ตำแหน่งปัจจุบันของคุณ</div>'
+                    f'<div class="camp-co">{_my_lat:.5f}, {_my_lon:.5f}'
+                    + (f' · แม่นยำ ±{_my_acc:,.0f} ม.' if _my_acc else '')
+                    + '</div></div></div>', unsafe_allow_html=True)
+                _g1, _g2 = st.columns(2)
+                if _g1.button("⛺ ตั้งตรงนี้เป็นจุดกางเต็นท์", use_container_width=True,
+                              disabled=cur_closed):
+                    c = db()
+                    c.execute("UPDATE trips SET lat=?, lon=? WHERE id=?", (_my_lat, _my_lon, trip_id))
+                    c.commit(); c.close()
+                    flash("ตั้งจุดกางเต็นท์จากตำแหน่งปัจจุบันแล้ว", "ok"); st.rerun()
+                if _g2.button("📡 แชร์ตำแหน่งให้เพื่อนในทริป", use_container_width=True,
+                              type="primary"):
+                    c = db()
+                    c.execute("INSERT INTO locations (trip_id,name,lat,lon,acc,updated_at) "
+                              "VALUES (?,?,?,?,?,?) ON CONFLICT(trip_id,name) DO UPDATE SET "
+                              "lat=excluded.lat, lon=excluded.lon, acc=excluded.acc, "
+                              "updated_at=excluded.updated_at",
+                              (trip_id, me, _my_lat, _my_lon, _my_acc, now_str()))
+                    c.commit(); c.close()
+                    flash("แชร์ตำแหน่งแล้ว เพื่อนในทริปจะเห็นบนแผนที่", "ok"); st.rerun()
+
             st.markdown('<div class="section-head">⛺ จุดกางเต็นท์ / จุดนัดพบ</div>',
                         unsafe_allow_html=True)
             with st.form("camp_loc"):
@@ -2401,15 +2516,44 @@ if menu == "home":
                                horizontal=True, key="camp_mapmode",
                                label_visibility="collapsed")
                 if _mv.startswith("🗺️"):
+                    # [FIX v35] วางทั้งจุดกางเต็นท์ ตำแหน่งเรา และเพื่อนที่แชร์ไว้ ลงแผนที่เดียว
+                    c = db()
+                    _locs = c.execute(
+                        "SELECT name,lat,lon,updated_at FROM locations WHERE trip_id=? "
+                        "AND name IN (%s)" % ",".join("?"*len(members)) if members else
+                        "SELECT name,lat,lon,updated_at FROM locations WHERE trip_id=? AND 0",
+                        tuple([trip_id] + members)).fetchall() if members else []
+                    c.close()
+                    _rows = [{"lat": _lat, "lon": _lon, "c": "#dc2626", "s": 70}]
+                    if _my_lat is not None:
+                        _rows.append({"lat": _my_lat, "lon": _my_lon, "c": "#1d4ed8", "s": 55})
+                    for _L in _locs:
+                        if _L["name"] != me:
+                            _rows.append({"lat": _L["lat"], "lon": _L["lon"],
+                                          "c": person_color(_L["name"]), "s": 45})
+                    _pt = pd.DataFrame(_rows)
                     # [FIX v32] กำหนดความสูงชัดเจน — ค่าเริ่มต้นของ st.map คือ 500px
-                    #   ซึ่งกินพื้นที่จนดันปุ่มและพยากรณ์อากาศตกจอไปหมด
-                    #   พารามิเตอร์ height เพิ่งมีใน Streamlit รุ่นใหม่ ๆ
-                    #   จึงเผื่อทางถอยไว้ให้รุ่นเก่าที่ยังไม่รองรับ
-                    _pt = pd.DataFrame({"lat": [_lat], "lon": [_lon]})
+                    #   พารามิเตอร์ height เพิ่งมีใน Streamlit รุ่นใหม่ ๆ จึงเผื่อทางถอยไว้
                     try:
-                        st.map(_pt, zoom=13, size=60, color="#dc2626", height=300)
+                        st.map(_pt, latitude="lat", longitude="lon", color="c", size="s",
+                               zoom=13, height=300)
                     except TypeError:
-                        st.map(_pt, zoom=13, size=60, color="#dc2626")
+                        st.map(_pt, latitude="lat", longitude="lon", color="c", size="s", zoom=13)
+                    st.caption("🔴 จุดกางเต็นท์ · 🔵 ตำแหน่งคุณ · จุดสีอื่น = เพื่อนที่แชร์ตำแหน่งไว้")
+
+                    if _locs:
+                        with st.expander(f"เพื่อนที่แชร์ตำแหน่งไว้ ({len(_locs)} คน)"):
+                            for _L in _locs:
+                                _dm = haversine_m(_lat, _lon, _L["lat"], _L["lon"])
+                                st.markdown(
+                                    '<div style="display:flex;align-items:center;gap:10px;'
+                                    'padding:7px 0;border-bottom:1px solid #dbeafe;">'
+                                    + avatar_html(_L["name"], avatars.get(_L["name"]), size=30, font=12)
+                                    + f'<div style="flex:1;"><div style="font-size:13px;font-weight:600;'
+                                    f'color:#000;">{esc(_L["name"])}</div>'
+                                    f'<div style="font-size:11px;color:#6b7280;">'
+                                    f'ห่างจุดกางเต็นท์ {fmt_dist(_dm)} · อัปเดต {esc(str(_L["updated_at"])[11:16])}'
+                                    f'</div></div></div>', unsafe_allow_html=True)
                 else:
                     # Google Maps แบบฝัง: ใช้ได้โดยไม่ต้องมี API key
                     #   แต่ Google อาจบล็อกการฝังในบาง network/เบราว์เซอร์
@@ -2423,6 +2567,24 @@ if menu == "home":
                         f'loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>')
                     st.caption("ถ้าช่องแผนที่ว่างเปล่า แปลว่าเบราว์เซอร์บล็อกการฝังของ Google "
                                "— สลับไปใช้ “แผนที่ในหน้า” ได้เลย")
+
+                # ── [FIX v35] เข็มทิศออฟไลน์ ──────────────────────
+                #   ที่ลานกางเต็นท์มักไม่มีสัญญาณ Google Maps จึงเปิดไม่ได้
+                #   ส่วนนี้คำนวณเองล้วน ๆ ไม่เรียกเน็ต ใช้เดินกลับเต็นท์ตอนมืดได้
+                if _my_lat is not None:
+                    _dm = haversine_m(_my_lat, _my_lon, _lat, _lon)
+                    _bg = bearing_deg(_my_lat, _my_lon, _lat, _lon)
+                    st.markdown(
+                        f'<div class="nav-box">'
+                        f'<div class="nav-arrow" style="transform:rotate({_bg - 90:.0f}deg);">➤</div>'
+                        f'<div class="nav-mid">'
+                        f'<div class="nav-dist money">{fmt_dist(_dm)}</div>'
+                        f'<div class="nav-sub">ทาง{compass_name(_bg)} ({_bg:.0f}°) · {walk_time(_dm)}</div>'
+                        f'</div></div>'
+                        '<div class="nav-hint">ลูกศรชี้ทิศจากตำแหน่งคุณไปจุดกางเต็นท์ '
+                        '(อิงทิศเหนือจริง ให้หันหน้าไปทางเหนือแล้วเทียบ) '
+                        'ส่วนนี้คำนวณในเครื่อง ใช้ได้แม้ไม่มีสัญญาณ</div>',
+                        unsafe_allow_html=True)
 
                 _mc1, _mc2 = st.columns(2)
                 _mc1.link_button("🗺️ เปิดใน Google Maps", _url, use_container_width=True)
