@@ -101,6 +101,25 @@ html,body,
 }
 [data-testid="stMainBlockContainer"] { max-width: 100% !important; }
 
+/* ══ [FIX v30] ชั้นซ้อน (z-index) ต้องต่ำกว่าโหมดเต็มจอของ Streamlit ══
+   เดิมตั้งแถบบนไว้ 2147483647 (สูงสุดที่เบราว์เซอร์รับได้) เพราะเคยโดน
+   toolbar ของ Streamlit ทับ แต่พอกดขยายแผนที่เต็มจอ ชั้นเต็มจอของ Streamlit
+   อยู่ที่ 1000050 (ตรวจจากไฟล์ของ Streamlit เอง) จึงต่ำกว่าแถบบนเรา
+   → แถบบนไปทับปุ่มปิดเต็มจอที่มุมขวาบน กดออกไม่ได้
+   ตอนนี้ลดมาอยู่ 100000-100003 ซึ่งยังสูงกว่าเนื้อหาปกติมาก
+   แต่ต่ำกว่าเต็มจอ/ป๊อปอัพของ Streamlit จึงไม่ไปบังของพวกนั้น */
+
+/* แถบเครื่องมือประจำ element (มีปุ่มขยาย/ปิดเต็มจอ) ต้องไม่ถูกซ่อน */
+[data-testid="stElementToolbar"],
+[data-testid="stElementToolbarButton"],
+[data-testid="stElementToolbarButtonContainer"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+/* ตอนเต็มจอ ให้เนื้อหาข้างในเลื่อนได้และไม่ถูกแถบบนเราบัง */
+[data-testid="stFullScreenFrame"] { z-index: auto; }
+
 /* ══ [FIX v25] แก้อาการกระพริบที่ขอบบนตอนเลื่อนหน้าจอ ══
    สาเหตุ: แถบบนสูงรวม 94px (navbar 50 + menubar 44) แต่เนื้อหาเริ่มที่ 102px
    เหลือช่องว่าง 8px ที่ "ไม่มีอะไรบัง" — เวลาเลื่อน เนื้อหาจะวิ่งผ่านช่องแคบ ๆ นี้
@@ -111,7 +130,7 @@ html,body,
     top: -2px; left: 0; right: 0;   /* -2px กันเส้นบางที่ขอบบนสุดตอน zoom ไม่ลงตัว */
     height: 108px;
     background: #dbeafe;
-    z-index: 2147483645;      /* [FIX v26] ดันขึ้นให้ชิดใต้ menubar กันเนื้อหาแทรก */
+    z-index: 100000;      /* [FIX v30] ใต้ menubar แต่เหนือเนื้อหา */
     pointer-events: none;
 }
 
@@ -171,7 +190,7 @@ html, body {
     top: 0;
     left: 0;
     right: 0;
-    z-index: 2147483647;   /* [FIX v3] สูงสุดเท่าที่ browser รับได้ */
+    z-index: 100002;   /* [FIX v30] ต่ำกว่าชั้นเต็มจอของ Streamlit (1000050) */
     font-family: var(--font-body);
 }
 .navbar-wrap .navbar {
@@ -194,7 +213,7 @@ div.st-key-userbtn {
     left: auto !important;
     width: auto !important;
     display: inline-flex !important;
-    z-index: 2147483647 !important;
+    z-index: 100002 !important;   /* [FIX v30] */
     margin: 0 !important; padding: 0 !important;
 }
 /* [FIX v7] เรียงลูกในคอนเทนเนอร์แนวนอน: [ป้ายออนไลน์][ป้ายแจ้งเตือน][ปุ่มโปรไฟล์]
@@ -315,7 +334,7 @@ div.st-key-menubar {
     position: fixed !important;
     top: 50px !important;
     left: 0 !important; right: 0 !important;
-    z-index: 2147483646 !important;   /* [FIX v3] */
+    z-index: 100001 !important;   /* [FIX v30] */
     background: #1e3a8a !important;
     padding: 0 !important; margin: 0 !important;
     border-bottom: 3px solid #60a5fa !important;
@@ -751,7 +770,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
    (st_autorefresh) ซึ่งจะล้าง timer ของ JS ทิ้งทุกครั้ง
    pointer-events:none เพื่อให้กดทะลุผ่านได้ ไม่บังปุ่มข้างหลัง */
 .flash-wrap {
-    position: fixed; inset: 0; z-index: 2147483647;
+    position: fixed; inset: 0; z-index: 100003;
     display: flex; align-items: center; justify-content: center;
     pointer-events: none;
 }
@@ -2798,6 +2817,39 @@ elif menu == "account":
                     fb=ebn if ebn!="-- เลือกธนาคาร --" else ""
                     c=db(); c.execute("UPDATE all_users SET promptpay=?,bank_name=?,bank_account=? WHERE name=?",(epp,fb,eba,me)); c.commit(); c.close()
                     flash("บันทึกแล้ว!", "ok"); st.rerun()
+
+            # ── [FIX v31] เปลี่ยน PIN ──────────────────────────
+            #   ต้องยืนยัน PIN เดิมก่อน กันคนที่มาใช้เครื่องต่อจากเราแล้วแอบเปลี่ยน
+            #   บัญชีที่ยังไม่เคยตั้ง PIN (ของเก่า) จะข้ามขั้นยืนยันให้
+            st.markdown('<div class="section-head">🔑 เปลี่ยน PIN</div>', unsafe_allow_html=True)
+            _has_pin = bool(md['pin_hash'])
+            with st.form("chg_pin", clear_on_submit=True):
+                if _has_pin:
+                    _op = st.text_input("PIN เดิม:", type="password", max_chars=4,
+                                        placeholder="ตัวเลข 4 หลัก")
+                else:
+                    _op = ""
+                    st.caption("บัญชีนี้ยังไม่เคยตั้ง PIN — ตั้งใหม่ได้เลย")
+                _np1 = st.text_input("PIN ใหม่:", type="password", max_chars=4,
+                                     placeholder="ตัวเลข 4 หลัก")
+                _np2 = st.text_input("ยืนยัน PIN ใหม่:", type="password", max_chars=4)
+                if st.form_submit_button("🔑 บันทึก PIN ใหม่", type="primary",
+                                         use_container_width=True):
+                    if _has_pin and not check_pin(_op, md['pin_hash'], md['pin_salt']):
+                        st.error("❌ PIN เดิมไม่ถูกต้อง")
+                    elif not (_np1.isdigit() and len(_np1) == 4):
+                        st.error("⚠️ PIN ใหม่ต้องเป็นตัวเลข 4 หลัก")
+                    elif _np1 != _np2:
+                        st.error("⚠️ PIN ใหม่ทั้งสองช่องไม่ตรงกัน")
+                    elif _has_pin and check_pin(_np1, md['pin_hash'], md['pin_salt']):
+                        st.error("⚠️ PIN ใหม่ซ้ำกับของเดิม")
+                    else:
+                        _h, _sl = hash_pin(_np1)
+                        c = db()
+                        c.execute("UPDATE all_users SET pin_hash=?,pin_salt=? WHERE name=?",
+                                  (_h, _sl, me))
+                        c.commit(); c.close()
+                        flash("เปลี่ยน PIN เรียบร้อยแล้ว", "ok"); st.rerun()
 
             if st.button("🚪 ออกจากระบบ",type="secondary",use_container_width=True):
                 c=db(); c.execute("DELETE FROM online_status WHERE name=?",(me,)); c.commit(); c.close()
