@@ -99,6 +99,29 @@ html,body,
 }
 [data-testid="stMainBlockContainer"] { max-width: 100% !important; }
 
+/* ══ [FIX v25] แก้อาการกระพริบที่ขอบบนตอนเลื่อนหน้าจอ ══
+   สาเหตุ: แถบบนสูงรวม 94px (navbar 50 + menubar 44) แต่เนื้อหาเริ่มที่ 102px
+   เหลือช่องว่าง 8px ที่ "ไม่มีอะไรบัง" — เวลาเลื่อน เนื้อหาจะวิ่งผ่านช่องแคบ ๆ นี้
+   ตัวหนังสือแวบผ่านช่อง 8px เลยเห็นเป็นการกระพริบ
+   วิธีแก้: วางแผ่นทึบสีพื้นหลังคลุมตั้งแต่ 0 ถึง 104px ไว้ใต้แถบบนแต่เหนือเนื้อหา */
+.hdr-fill {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 104px;
+    background: #dbeafe;
+    z-index: 2147483640;      /* ต่ำกว่า navbar/menubar แต่สูงกว่าเนื้อหา */
+    pointer-events: none;
+}
+
+/* ดันขึ้น GPU layer — ลดการวาดซ้ำระหว่างเลื่อน ซึ่งเป็นอีกสาเหตุของการกระพริบ
+   โดยเฉพาะบนมือถือ (หมายเหตุ: ห้ามใส่ transform ให้ตัวที่มีลูกเป็น position:fixed
+   เพราะจะทำให้ลูกยึดกับตัวเองแทนที่จะยึดกับหน้าจอ — ที่ใส่ไว้ข้างล่างไม่มีเคสนั้น) */
+.navbar-wrap, div.st-key-menubar, .hdr-fill {
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+}
+
 /* ══ NAVBAR (fixed at top) ══ */
 .navbar-wrap {
     position: fixed;
@@ -309,6 +332,7 @@ div.st-key-menubar .stButton > button[kind="primary"] p {
    ไม่ถูกนับใน gap ของ flexbox (ตัวที่เป็น fixed อยู่แล้วยังแสดงปกติ) */
 [data-testid="stElementContainer"]:has(> [data-testid="stMarkdownContainer"] > style),
 [data-testid="stElementContainer"]:has(.navbar-wrap),
+[data-testid="stElementContainer"]:has(.hdr-fill),
 [data-testid="stElementContainer"]:has(.flash-wrap),
 [data-testid="stElementContainer"]:has(.flash-slot),
 [data-testid="stVerticalBlockBorderWrapper"]:has(> div > div.st-key-menubar),
@@ -701,7 +725,8 @@ def db():
     """[FIX v11] timeout=15 + WAL — เดิมไม่ได้ตั้งทั้งคู่ พอมีหลายคนใช้พร้อมกัน
     (heartbeat เขียนทุก 3 วิ/คน) จะเจอ 'database is locked' ทันที
     WAL ให้อ่านคู่ขนานกับเขียนได้ ส่วน busy_timeout ให้รอคิวแทนที่จะโยน error"""
-    c = sqlite3.connect(DB_FILE, timeout=15)
+    # [FIX v25] isolation_level=None + WAL ทำให้ connection ที่หลุดไม่ค้างล็อกยาว
+    c = sqlite3.connect(DB_FILE, timeout=20)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=15000")
@@ -774,6 +799,10 @@ def init_db():
     except sqlite3.OperationalError: pass
     # [FIX v22] split_detail = JSON บอกวิธีหาร (ไม่มี/ว่าง = หารเท่ากันแบบเดิม)
     #   เก็บแยกจาก split_members เพื่อให้บิลเก่าที่มีอยู่แล้วยังอ่านได้เหมือนเดิม
+    # [FIX v24] created_by = คนที่สร้าง Event (ใช้จำกัดสิทธิ์การลบ)
+    #   Event เก่าที่สร้างก่อนมีคอลัมน์นี้จะเป็น NULL = ไม่ทราบผู้สร้าง
+    try: conn.execute("ALTER TABLE trips ADD COLUMN created_by TEXT")
+    except sqlite3.OperationalError: pass
     try: conn.execute("ALTER TABLE expenses ADD COLUMN split_detail TEXT")
     except sqlite3.OperationalError: pass
     # [FIX v22] สลิปยืนยันการโอน
@@ -1016,6 +1045,19 @@ def promptpay_payload(raw, amount=None):
     return p + _pp_crc16(p)
 
 @st.cache_data(show_spinner=False, max_entries=128)
+def promptpay_qr_png(raw, amount=None, box=10):
+    """[FIX v24] คืน PNG bytes สำหรับปุ่มดาวน์โหลด/แชร์
+    box ใหญ่กว่าที่แสดงบนจอ เพื่อให้ไฟล์ที่บันทึกไปคมพอให้แอปธนาคารสแกนติด"""
+    payload = promptpay_payload(raw, amount)
+    if not payload: return None
+    q = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M,
+                      box_size=box, border=3)
+    q.add_data(payload); q.make(fit=True)
+    img = q.make_image(fill_color="black", back_color="white").convert("RGB")
+    buf = io.BytesIO(); img.save(buf, format="PNG")
+    return buf.getvalue()
+
+@st.cache_data(show_spinner=False, max_entries=128)
 def promptpay_qr_uri(raw, amount=None, box=7):
     """คืน data URI ของรูป QR — แคชไว้เพราะหน้าจอ rerun ทุก 3 วิ
     ถ้าสร้างใหม่ทุกรอบจะเปลืองเวลาโดยเปล่าประโยชน์"""
@@ -1199,7 +1241,7 @@ def online_now():
 #   ไม่ต้องพึ่งการจำบัมพ์เลขเวอร์ชันด้วยมือ
 SCHEMA_COLS = {
     "all_users":     {"promptpay","bank_name","bank_account","avatar_blob"},
-    "trips":         {"trip_date"},
+    "trips":         {"trip_date","created_by"},
     "expenses":      {"split_detail"},
     "settlements":   {"slip_blob"},
     "notifications": {"is_auto","is_read","timestamp"},
@@ -1260,11 +1302,13 @@ if st.session_state["trip_id"] not in tid_list:
     st.session_state["trip_id"] = tid_list[0] if tid_list else None
 
 trip_id = st.session_state["trip_id"]
-cur_trip = cur_date = None
+cur_trip = cur_date = cur_owner = None
 if trip_id and not trips_df.empty:
     row_t = trips_df[trips_df["id"]==trip_id]
     if not row_t.empty:
         cur_trip = row_t.iloc[0]["name"]; cur_date = row_t.iloc[0]["trip_date"]
+        cur_owner = row_t.iloc[0].get("created_by")   # [FIX v24] ผู้สร้าง Event
+        if cur_owner is not None and pd.isna(cur_owner): cur_owner = None
 
 members = []
 if trip_id:
@@ -1277,7 +1321,8 @@ if me and trip_id:
 # ─────────────────────────────────────────────────────────────
 # FIXED HEADER (navbar + menubar)
 # ─────────────────────────────────────────────────────────────
-trip_lbl   = cur_trip or "เลือก Event"
+# [FIX v24] ยังไม่ล็อกอิน = ไม่เผยแม้แต่ชื่อทริปบนแถบบน
+trip_lbl   = (cur_trip or "เลือก Event") if me else "ยังไม่เข้าสู่ระบบ"
 av_char    = me[0].upper() if me else "?"
 name_str   = me if me else "ล็อกอิน"
 green_part = f'<span class="nb-badge-g">🟢 {len(online_users)}</span>' if online_users else ""
@@ -1301,6 +1346,7 @@ cur_menu = st.session_state["menu"]
 #   เป็น "code block" → กลายเป็นกล่องขาวโชว์ HTML ดิบ ๆ ทับ navbar
 #   วิธีแก้: ต่อเป็นสตริงบรรทัดเดียว ไม่มีขึ้นบรรทัดใหม่/ย่อหน้าเลย
 navbar_html = (
+    '<div class="hdr-fill"></div>'          # [FIX v25] แผ่นทึบกันเนื้อหาโผล่ที่ขอบบน
     '<div class="navbar-wrap"><div class="navbar">'
     '<span class="nb-icon">✈️</span>'
     '<span class="nb-title">Trip Splitter</span>'
@@ -1353,6 +1399,24 @@ menu = st.session_state["menu"]
 
 # [FIX v17] วาดป๊อปอัพหลังแถบเมนู เพื่อให้ลอยทับทุกหน้าเหมือนกัน
 render_flash()
+
+# [FIX v24] ประตูล็อกอินกลาง — ยังไม่ล็อกอินจะไม่เห็นข้อมูลใด ๆ ทั้งสิ้น
+#   ทำที่จุดเดียวก่อนแยกหน้า ปลอดภัยกว่าไปเช็คทีละหน้าแล้วลืมหน้าใดหน้าหนึ่ง
+#   (ก่อนหน้านี้หน้า "จัดการ" โชว์รายชื่อ Event และสมาชิกได้ทั้งที่ยังไม่ล็อกอิน)
+if not me and menu != "account":
+    st.markdown(
+        '<div class="card" style="text-align:center;padding:44px 20px;">'
+        '<div style="font-size:50px;">🔒</div>'
+        '<div style="font-family:var(--font-display);font-weight:600;font-size:19px;'
+        'margin:10px 0 6px;">กรุณาเข้าสู่ระบบก่อน</div>'
+        '<div style="color:#6b7280;font-size:13px;">ข้อมูลบิล สมาชิก และแชท '
+        'จะแสดงเมื่อเข้าสู่ระบบแล้วเท่านั้น</div></div>',
+        unsafe_allow_html=True)
+    _gl, _gc, _gr = st.columns([1, 2, 1])
+    if _gc.button("🔐 ไปหน้าเข้าสู่ระบบ", type="primary", use_container_width=True):
+        st.session_state["menu"] = "account"
+        st.rerun()
+    st.stop()
 
 # ═══════════════════════════════════════════════════════
 # PAGE ROUTING
@@ -1599,6 +1663,23 @@ if menu == "home":
                             st.markdown(f"🏦 **{esc(bn or 'บัญชี')} {esc(cn)}**"); st.code(ba)
                         if not (pp or ba):
                             st.warning(f"{cn} ยังไม่ได้บันทึกบัญชี — บอกให้ไปกรอกที่เมนูโปรไฟล์")
+                        # [FIX v24] โหลดรูป QR เก็บไว้ แล้วใช้ "สแกนจากคลังภาพ" ในแอปธนาคาร
+                        #   หมายเหตุ: ธนาคารไทยไม่มี URL scheme สาธารณะที่รับ payload
+                        #   พร้อมเพย์แล้วเปิดหน้าโอนให้เลย (ของ SCB ต้องเป็นพาร์ตเนอร์
+                        #   Open Banking API และใช้กับร้านค้าเท่านั้น) วิธีที่ใช้ได้จริง
+                        #   ทุกธนาคารคือบันทึกรูปแล้วสแกนจากคลังภาพ
+                        if pp:
+                            _png = promptpay_qr_png(pp, at)
+                            if _png:
+                                st.download_button(
+                                    "⬇️ โหลดรูป QR",
+                                    data=_png,
+                                    file_name=f"promptpay_{cn}_{at:,.2f}.png".replace(",", ""),
+                                    mime="image/png",
+                                    key=f"qrdl_{dn}_{cn}_{trip_id}",
+                                    use_container_width=True)
+                                st.caption("บันทึกรูปแล้วเปิดแอปธนาคาร → สแกน QR → "
+                                           "เลือกรูปจากคลังภาพ ยอดเงินจะขึ้นมาให้เอง")
 
                     # [FIX v11] ปิดหนี้ได้จริง — บันทึกลงตาราง settlements
                     #   ให้เฉพาะลูกหนี้หรือเจ้าหนี้ของรายการนั้นกดได้ คนอื่นกดแทนไม่ได้
@@ -1700,7 +1781,7 @@ elif menu == "manage":
                     ok_n, err_n = valid_name(ne)
                     if ok_n:
                         try:
-                            c=db(); c.execute("INSERT INTO trips (name,status,trip_date) VALUES (?,0,?)",(ne.strip(),nd.strftime("%Y-%m-%d"))); c.commit(); c.close()
+                            c=db(); c.execute("INSERT INTO trips (name,status,trip_date,created_by) VALUES (?,0,?,?)",(ne.strip(),nd.strftime("%Y-%m-%d"),me)); c.commit(); c.close()
                             flash(f"สร้าง '{ne.strip()}' แล้ว!", "ok"); st.rerun()
                         except sqlite3.IntegrityError: st.error("❌ ชื่อซ้ำ")
                     else: st.error(f"⚠️ {err_n}")
@@ -1720,9 +1801,20 @@ elif menu == "manage":
                                 flash("แก้ไขแล้ว!", "ok"); st.rerun()
                             except sqlite3.IntegrityError: st.error("❌ ชื่อซ้ำ")
                         else: st.error(f"⚠️ {err_r}")
-                if st.button("🗑️ ลบ Event นี้", type="secondary", use_container_width=True):
-                    c=db(); c.execute("UPDATE trips SET status=1 WHERE id=?",(trip_id,)); c.commit(); c.close()
-                    st.session_state["trip_id"]=None; flash("ย้ายสู่ถังขยะ", "ok"); st.rerun()
+                # [FIX v24] ลบ Event ได้เฉพาะคนที่สร้างเท่านั้น
+                #   Event เก่าที่ไม่มีข้อมูลผู้สร้าง (created_by = NULL) ยังลบได้
+                #   เพื่อไม่ให้ของเดิมค้างจนลบไม่ออก แต่จะบอกให้ทราบว่าไม่ระบุผู้สร้าง
+                _can_del = (cur_owner is None) or (cur_owner == me)
+                if _can_del:
+                    if st.button("🗑️ ลบ Event นี้", type="secondary", use_container_width=True):
+                        c=db(); c.execute("UPDATE trips SET status=1 WHERE id=?",(trip_id,)); c.commit(); c.close()
+                        st.session_state["trip_id"]=None; flash("ย้ายสู่ถังขยะ", "ok"); st.rerun()
+                    if cur_owner is None:
+                        st.caption("Event นี้สร้างก่อนระบบบันทึกผู้สร้าง — ใครก็ลบได้")
+                else:
+                    st.button("🗑️ ลบ Event นี้", type="secondary",
+                              use_container_width=True, disabled=True)
+                    st.caption(f"🔒 ลบได้เฉพาะผู้สร้าง Event นี้ ({esc(cur_owner)}) เท่านั้น")
 
         with right:
             st.markdown('<div class="section-head">🗺️ เลือก Event</div>', unsafe_allow_html=True)
@@ -1771,7 +1863,13 @@ elif menu == "manage":
                             + f'<div style="font-size:12px;color:#374151;">{"ออนไลน์" if ion else "ออฟไลน์"}</div></div></div>',
                             unsafe_allow_html=True)
                         if mc2.button("ออก", key=f"rm_{mem}"):
-                            c.execute("DELETE FROM members WHERE trip_id=? AND name=?",(trip_id,mem)); c.commit()
+                            # [FIX v25] ต้องปิด connection ก่อน st.rerun()
+                            #   st.rerun() โยน exception เพื่อหยุดสคริปต์ทันที
+                            #   c.close() ที่อยู่ท้ายลูปจึงไม่เคยถูกเรียก
+                            #   → connection ค้างพร้อมล็อกเขียน แล้วทุกคนเจอ
+                            #   sqlite3.OperationalError: database is locked
+                            c.execute("DELETE FROM members WHERE trip_id=? AND name=?",(trip_id,mem))
+                            c.commit(); c.close()
                             flash(f"ถอด {mem}", "ok"); st.rerun()
                     c.close()
                 else:
@@ -1859,12 +1957,18 @@ elif menu == "manage":
             for dt in dels:
                 hd=dt['trip_date'] and str(dt['trip_date']).strip()
                 dn2=f"{dt['name']} ({dt['trip_date']})" if hd else dt['name']
+                # [FIX v24] ลบถาวรก็ต้องเป็นผู้สร้างเท่านั้น (กู้คืนใครก็ทำได้)
+                try: _own = dt['created_by']
+                except (KeyError, IndexError): _own = None
+                _mine = (_own is None) or (_own == me)
                 dc1,dc2,dc3=st.columns([3,1,1])
-                dc1.markdown(f"✈️ **{dn2}**")
+                dc1.markdown(f"✈️ **{esc(dn2)}**" +
+                             (f"  \n<span style='font-size:11px;color:#6b7280;'>สร้างโดย {esc(_own)}</span>"
+                              if _own else ""), unsafe_allow_html=True)
                 if dc2.button("กู้คืน",key=f"rs_{dt['id']}",type="primary"):
                     c=db(); c.execute("UPDATE trips SET status=0 WHERE id=?",(dt['id'],)); c.commit(); c.close()
                     flash("กู้คืนแล้ว!", "ok"); st.rerun()
-                if dc3.button("ลบถาวร",key=f"pd_{dt['id']}",type="secondary"):
+                if dc3.button("ลบถาวร",key=f"pd_{dt['id']}",type="secondary",disabled=not _mine):
                     c=db()
                     for tb in ["settlements","expenses","members","notifications"]: c.execute(f"DELETE FROM {tb} WHERE trip_id=?",(dt['id'],))
                     c.execute("DELETE FROM trips WHERE id=?",(dt['id'],)); c.commit(); c.close()
@@ -1872,25 +1976,8 @@ elif menu == "manage":
 
     # ── [FIX v11] TAB: สำรองข้อมูล ───────────────────────
     if _mt == 3:
-        # [FIX v16] ถอดการล็อกด้วย PIN และไม่ต้องล็อกอินแล้ว ตามที่ผู้ใช้ขอ
-        #   เปิดใช้ใหม่ได้โดยเปลี่ยนเป็น True
-        BACKUP_REQUIRE_PIN = False
-        if BACKUP_REQUIRE_PIN:
-            if not me:
-                st.warning("กรุณาเข้าสู่ระบบก่อนใช้งานส่วนนี้")
-                st.stop()
-            if not st.session_state.get("backup_unlocked"):
-                st.info("🔒 ส่วนนี้มีข้อมูลบัญชีธนาคารและแชทส่วนตัว — ยืนยันด้วย PIN ของคุณ")
-                with st.form("unlock_backup"):
-                    _p = st.text_input("🔑 PIN ของคุณ:", type="password", max_chars=6)
-                    if st.form_submit_button("ปลดล็อก", type="primary"):
-                        c=db(); _r=c.execute("SELECT pin_hash,pin_salt FROM all_users WHERE name=?",(me,)).fetchone(); c.close()
-                        if _r and check_pin(_p, _r["pin_hash"], _r["pin_salt"]):
-                            st.session_state["backup_unlocked"] = True; st.rerun()
-                        else:
-                            st.error("❌ PIN ไม่ถูกต้อง")
-                st.stop()
-
+        # [FIX v24] ไม่ถาม PIN ซ้ำที่นี่แล้ว — ผ่านประตูล็อกอินกลางมาตั้งแต่ต้นหน้า
+        #   (PIN ใช้เฉพาะตอนล็อกอินตามที่ผู้ใช้ขอ)
         st.warning(
             "⚠️ **ข้อมูลไม่ถาวร** — Streamlit Community Cloud ล้างไฟล์ในเครื่องทุกครั้ง "
             "ที่ app reboot หรือ deploy โค้ดใหม่ บิล/แชท/ยอดหนี้จะหายทั้งหมด "
@@ -2045,30 +2132,55 @@ elif menu == "account":
     al,ar=st.columns([1,1])
     with al:
         if me is None:
-            # [FIX v18] ถอด PIN ออกตามที่ผู้ใช้ขอ — เลือกโปรไฟล์แล้วกดเข้าได้เลย
-            #   คอลัมน์ pin_hash/pin_salt และฟังก์ชัน hash_pin/check_pin ยังคงไว้
-            #   เพื่อไม่ให้ข้อมูลเดิมพัง และเปิดกลับได้โดยไม่ต้องเขียนใหม่
-            st.markdown('<div class="section-head">👤 เข้าสู่ระบบ</div>', unsafe_allow_html=True)
+            # [FIX v24] เอา PIN กลับมา — ใช้เฉพาะตอนล็อกอินและตอนสมัครเท่านั้น
+            #   ไม่มีการถาม PIN ซ้ำที่หน้าอื่นอีก (สำรองข้อมูลก็ไม่ถาม)
+            st.markdown('<div class="section-head">🔐 เข้าสู่ระบบ</div>', unsafe_allow_html=True)
             lm2=st.radio("วิธีเข้าใช้งาน",["เลือกโปรไฟล์","สร้างบัญชีใหม่"],horizontal=True,
                          label_visibility="collapsed")
             if lm2=="เลือกโปรไฟล์":
                 if all_users:
                     with st.form("login_form"):
                         us2 = st.selectbox("ชื่อของคุณ:", all_users)
+                        pin_in = st.text_input("🔑 PIN:", type="password", max_chars=4,
+                                               placeholder="ตัวเลข 4 หลัก")
                         if st.form_submit_button("เข้าสู่ระบบ", type="primary", use_container_width=True):
-                            st.session_state["me"]=us2; heartbeat(us2)
-                            flash(f"ยินดีต้อนรับ, {us2}!", "ok"); st.rerun()
+                            c=db(); _r=c.execute("SELECT pin_hash,pin_salt FROM all_users WHERE name=?",(us2,)).fetchone(); c.close()
+                            if _r is None:
+                                st.error("❌ ไม่พบบัญชีนี้")
+                            elif not _r["pin_hash"]:
+                                # บัญชีที่สร้างไว้ตอนยังไม่มีระบบ PIN → ตั้ง PIN ครั้งแรกตรงนี้
+                                if not (pin_in.isdigit() and len(pin_in) == 4):
+                                    st.error("บัญชีนี้ยังไม่มี PIN — ตั้งใหม่ได้เลย (ตัวเลข 4 หลัก)")
+                                else:
+                                    _h,_sl = hash_pin(pin_in)
+                                    c=db(); c.execute("UPDATE all_users SET pin_hash=?,pin_salt=? WHERE name=?",(_h,_sl,us2)); c.commit(); c.close()
+                                    st.session_state["me"]=us2; heartbeat(us2)
+                                    flash(f"ตั้ง PIN แล้ว ยินดีต้อนรับ {us2}!", "ok"); st.rerun()
+                            elif check_pin(pin_in, _r["pin_hash"], _r["pin_salt"]):
+                                st.session_state["me"]=us2; heartbeat(us2)
+                                flash(f"ยินดีต้อนรับ, {us2}!", "ok"); st.rerun()
+                            else:
+                                st.error("❌ PIN ไม่ถูกต้อง")
+                    st.caption("บัญชีที่สร้างก่อนมีระบบ PIN จะตั้ง PIN ครั้งแรกตอนล็อกอิน")
                 else: st.caption("ยังไม่มีบัญชี")
             else:
                 with st.form("signup_form"):
                     nn  = st.text_input("ชื่อเล่น:", placeholder="ชื่อของคุณ", max_chars=NAME_MAXLEN)
+                    p1  = st.text_input("🔑 ตั้ง PIN:", type="password", max_chars=4,
+                                        placeholder="ตัวเลข 4 หลัก")
+                    p2  = st.text_input("🔑 ยืนยัน PIN:", type="password", max_chars=4)
                     if st.form_submit_button("สร้างบัญชี", type="primary", use_container_width=True):
                         ok, err = valid_name(nn)
                         if not ok:
                             st.error(f"⚠️ {err}")
+                        elif not (p1.isdigit() and len(p1) == 4):
+                            st.error("⚠️ PIN ต้องเป็นตัวเลข 4 หลัก")
+                        elif p1 != p2:
+                            st.error("⚠️ PIN ทั้งสองช่องไม่ตรงกัน")
                         else:
+                            _h,_sl = hash_pin(p1)
                             try:
-                                c=db(); c.execute("INSERT INTO all_users (name) VALUES (?)",(nn.strip(),)); c.commit(); c.close()
+                                c=db(); c.execute("INSERT INTO all_users (name,pin_hash,pin_salt) VALUES (?,?,?)",(nn.strip(),_h,_sl)); c.commit(); c.close()
                                 st.session_state["me"]=nn.strip(); heartbeat(nn.strip())
                                 flash(f"ยินดีต้อนรับ {nn.strip()}!", "ok"); st.rerun()
                             except sqlite3.IntegrityError:
