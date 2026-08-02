@@ -2440,7 +2440,9 @@ if menu == "home":
                 if _gp and _gp.get("latitude") is not None:
                     _my_lat, _my_lon = float(_gp["latitude"]), float(_gp["longitude"])
                     _my_acc = _gp.get("accuracy")
-                    st.session_state["my_gps"] = (_my_lat, _my_lon, _my_acc)
+                    # [FIX v36] เก็บเวลาที่อ่านด้วย — ตำแหน่งที่ค้างไว้นาน ๆ อาจเป็นของ
+                    #   จุดที่เดินผ่านมาแล้ว ถ้าไม่บอกเวลาจะหลงเชื่อว่าเป็นตำแหน่งตอนนี้
+                    st.session_state["my_gps"] = (_my_lat, _my_lon, _my_acc, time.time())
                 else:
                     st.caption("กดปุ่มด้านบนแล้วอนุญาตให้เบราว์เซอร์เข้าถึงตำแหน่ง")
             except ImportError:
@@ -2451,16 +2453,33 @@ if menu == "home":
                 st.warning(f"อ่านตำแหน่งไม่ได้: {_e}")
 
             # ใช้ค่าที่เคยอ่านได้ในรอบก่อน (component คืนค่าเฉพาะรอบที่กด)
+            _gps_age = None
             if _my_lat is None and st.session_state.get("my_gps"):
-                _my_lat, _my_lon, _my_acc = st.session_state["my_gps"]
+                _cache = st.session_state["my_gps"]
+                _my_lat, _my_lon, _my_acc = _cache[0], _cache[1], _cache[2]
+                if len(_cache) > 3:
+                    _gps_age = time.time() - _cache[3]
+
+            # [FIX v36] เช็คว่าตอนนี้แชร์ตำแหน่งค้างไว้ไหม (แม้ยังไม่ได้เปิด GPS รอบนี้)
+            c = db()
+            _shared = c.execute("SELECT lat,lon,updated_at FROM locations WHERE trip_id=? AND name=?",
+                                (trip_id, me)).fetchone()
+            c.close()
 
             if _my_lat is not None:
+                _stale = _gps_age is not None and _gps_age > 300     # เกิน 5 นาที
                 st.markdown(
                     f'<div class="camp-loc"><div class="camp-pin">🛰️</div><div>'
                     f'<div class="camp-nm">ตำแหน่งปัจจุบันของคุณ</div>'
                     f'<div class="camp-co">{_my_lat:.5f}, {_my_lon:.5f}'
                     + (f' · แม่นยำ ±{_my_acc:,.0f} ม.' if _my_acc else '')
+                    + (f' · อ่านเมื่อ {_gps_age/60:.0f} นาทีที่แล้ว' if _gps_age and _gps_age >= 60
+                       else (' · เพิ่งอ่าน' if _gps_age is not None else ''))
                     + '</div></div></div>', unsafe_allow_html=True)
+                if _stale:
+                    st.warning("ตำแหน่งนี้อ่านไว้นานแล้ว ถ้าเดินมาที่อื่นให้กดปุ่ม 🛰️ "
+                               "ด้านบนอ่านใหม่ หรือกดล้างตำแหน่ง")
+
                 _g1, _g2 = st.columns(2)
                 if _g1.button("⛺ ตั้งตรงนี้เป็นจุดกางเต็นท์", use_container_width=True,
                               disabled=cur_closed):
@@ -2478,6 +2497,26 @@ if menu == "home":
                               (trip_id, me, _my_lat, _my_lon, _my_acc, now_str()))
                     c.commit(); c.close()
                     flash("แชร์ตำแหน่งแล้ว เพื่อนในทริปจะเห็นบนแผนที่", "ok"); st.rerun()
+
+            # ── [FIX v36] ล้างตำแหน่ง — เดิมไม่มีทางเคลียร์เลย ────────
+            #   แยกสองปุ่มเพราะเป็นคนละเรื่อง:
+            #   "ล้างของฉัน" = ลบค่าที่ค้างในเครื่องนี้ (คนอื่นไม่เกี่ยว)
+            #   "หยุดแชร์"   = ลบออกจากฐานข้อมูล เพื่อนจะไม่เห็นเราบนแผนที่อีก
+            if _my_lat is not None or _shared:
+                _c1, _c2 = st.columns(2)
+                if _my_lat is not None:
+                    if _c1.button("🧹 ล้างตำแหน่งของฉัน", use_container_width=True):
+                        st.session_state.pop("my_gps", None)
+                        flash("ล้างตำแหน่งในเครื่องแล้ว", "ok"); st.rerun()
+                if _shared:
+                    if _c2.button("🚫 หยุดแชร์ตำแหน่ง", use_container_width=True):
+                        c = db()
+                        c.execute("DELETE FROM locations WHERE trip_id=? AND name=?", (trip_id, me))
+                        c.commit(); c.close()
+                        flash("หยุดแชร์แล้ว เพื่อนจะไม่เห็นตำแหน่งคุณ", "ok"); st.rerun()
+                if _shared:
+                    st.caption(f"📡 กำลังแชร์ตำแหน่งอยู่ (อัปเดตล่าสุด "
+                               f"{esc(str(_shared['updated_at'])[11:16])})")
 
             st.markdown('<div class="section-head">⛺ จุดกางเต็นท์ / จุดนัดพบ</div>',
                         unsafe_allow_html=True)
@@ -2499,6 +2538,16 @@ if menu == "home":
                                   (_pn.strip() or None, _la, _lo, trip_id))
                         c.commit(); c.close()
                         flash("บันทึกจุดกางเต็นท์แล้ว", "ok"); st.rerun()
+
+            # [FIX v36] ล้างจุดกางเต็นท์ — เผื่อตั้งผิดที่หรือย้ายลานกางเต็นท์
+            if _lat is not None and not cur_closed:
+                if st.button("🧹 ล้างจุดกางเต็นท์", key="clear_camp",
+                             use_container_width=True):
+                    c = db()
+                    c.execute("UPDATE trips SET place_name=NULL, lat=NULL, lon=NULL WHERE id=?",
+                              (trip_id,))
+                    c.commit(); c.close()
+                    flash("ล้างจุดกางเต็นท์แล้ว", "warn"); st.rerun()
 
             if _lat is not None:
                 _url = f"https://www.google.com/maps/search/?api=1&query={_lat},{_lon}"
