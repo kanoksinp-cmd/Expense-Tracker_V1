@@ -109,13 +109,27 @@ html,body,
    ตอนนี้ลดมาอยู่ 100000-100003 ซึ่งยังสูงกว่าเนื้อหาปกติมาก
    แต่ต่ำกว่าเต็มจอ/ป๊อปอัพของ Streamlit จึงไม่ไปบังของพวกนั้น */
 
-/* แถบเครื่องมือประจำ element (มีปุ่มขยาย/ปิดเต็มจอ) ต้องไม่ถูกซ่อน */
+/* [FIX v32] ปุ่มขยาย/หุบแผนที่ — ปกติ Streamlit ซ่อนไว้จนกว่าจะเอาเมาส์ไปชี้
+   บนมือถือไม่มีการชี้เมาส์ จึงหาปุ่มหุบกลับไม่เจอเลยเมื่อกดขยายไปแล้ว
+   บังคับให้เห็นตลอดพร้อมพื้นหลังทึบ จะได้มองออกว่ากดได้ */
 [data-testid="stElementToolbar"],
 [data-testid="stElementToolbarButton"],
 [data-testid="stElementToolbarButtonContainer"] {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
+}
+[data-testid="stElementToolbar"] {
+    background: rgba(255,255,255,.94) !important;
+    border: 1.5px solid #bfdbfe !important;
+    border-radius: 10px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,.14) !important;
+    transition: none !important;
+}
+/* ตอนเต็มจอ ดันปุ่มลงมาไม่ให้ชนแถบบนของเรา */
+[data-testid="stFullScreenFrame"] [data-testid="stElementToolbar"] {
+    top: 8px !important;
+    right: 12px !important;
 }
 /* ตอนเต็มจอ ให้เนื้อหาข้างในเลื่อนได้และไม่ถูกแถบบนเราบัง */
 [data-testid="stFullScreenFrame"] { z-index: auto; }
@@ -687,6 +701,19 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     vertical-align:middle;
 }
 .pk-none { background:#9ca3af; }
+
+/* [FIX v32] คุมความสูงแผนที่ไม่ให้ล้นทับปุ่มด้านล่าง
+   canvas ของ deck.gl บางครั้งขยายเกินคอนเทนเนอร์จนดันเนื้อหาอื่นตกจอ */
+[data-testid="stDeckGlJsonChart"],
+[data-testid="stDeckGlJsonChart"] > div,
+.stDeckGlJsonChart {
+    max-height: 320px !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+[data-testid="stFullScreenFrame"] [data-testid="stDeckGlJsonChart"] {
+    max-height: none !important;   /* ตอนเต็มจอให้ขยายได้ตามปกติ */
+}
 
 /* ══ [FIX v28] แคมป์: จุดกางเต็นท์ + พยากรณ์อากาศ ══ */
 .camp-loc {
@@ -2238,8 +2265,15 @@ if menu == "home":
                                horizontal=True, key="camp_mapmode",
                                label_visibility="collapsed")
                 if _mv.startswith("🗺️"):
-                    st.map(pd.DataFrame({"lat": [_lat], "lon": [_lon]}),
-                           zoom=13, size=60, color="#dc2626")
+                    # [FIX v32] กำหนดความสูงชัดเจน — ค่าเริ่มต้นของ st.map คือ 500px
+                    #   ซึ่งกินพื้นที่จนดันปุ่มและพยากรณ์อากาศตกจอไปหมด
+                    #   พารามิเตอร์ height เพิ่งมีใน Streamlit รุ่นใหม่ ๆ
+                    #   จึงเผื่อทางถอยไว้ให้รุ่นเก่าที่ยังไม่รองรับ
+                    _pt = pd.DataFrame({"lat": [_lat], "lon": [_lon]})
+                    try:
+                        st.map(_pt, zoom=13, size=60, color="#dc2626", height=300)
+                    except TypeError:
+                        st.map(_pt, zoom=13, size=60, color="#dc2626")
                 else:
                     # Google Maps แบบฝัง: ใช้ได้โดยไม่ต้องมี API key
                     #   แต่ Google อาจบล็อกการฝังในบาง network/เบราว์เซอร์
@@ -2248,7 +2282,7 @@ if menu == "home":
                     #   ตัวหลังถูกประกาศเลิกใช้ตั้งแต่ 1 มิ.ย. 2026 (เลยกำหนดมาแล้ว)
                     st.html(
                         f'<iframe src="https://maps.google.com/maps?q={_lat},{_lon}'
-                        f'&z=15&output=embed" width="100%" height="340" '
+                        f'&z=15&output=embed" width="100%" height="300" '
                         f'style="border:1.5px solid #bfdbfe;border-radius:12px;" '
                         f'loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>')
                     st.caption("ถ้าช่องแผนที่ว่างเปล่า แปลว่าเบราว์เซอร์บล็อกการฝังของ Google "
