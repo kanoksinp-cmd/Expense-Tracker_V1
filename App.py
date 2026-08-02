@@ -113,6 +113,29 @@ html,body,
     pointer-events: none;
 }
 
+/* ══ [FIX v27] ต้นเหตุจริงของการกระพริบทุก 3 วินาที ══
+   ระหว่างที่สคริปต์รันใหม่ Streamlit จะทำเครื่องหมาย element เดิมว่า "เก่า"
+   (data-stale="true") แล้วหรี่ความทึบเหลือ 0.33 เพื่อบอกผู้ใช้ว่ากำลังโหลด
+   — ตรวจจากไฟล์ของ Streamlit เองแล้ว: {secondary:.6, stale:.33}
+   ปกติแทบไม่ทันเห็น แต่แอปนี้ st_autorefresh สั่งรันใหม่ทุก 3 วินาที
+   จึงกลายเป็นทั้งหน้าจอวูบทุก 3 วิ = อาการกระพริบที่เจอ
+   แก้โดยบังคับความทึบเต็มเสมอ และตัด transition ที่ทำให้เห็นการไล่จาง */
+[data-stale="true"],
+[data-stale="true"] *,
+.stElementContainer[data-stale="true"],
+[data-testid="stElementContainer"][data-stale="true"],
+[data-testid="stVerticalBlock"][data-stale="true"],
+[data-testid="stHorizontalBlock"][data-stale="true"] {
+    opacity: 1 !important;
+    filter: none !important;
+    transition: none !important;
+}
+/* ปิด transition ทั่วหน้าเฉพาะที่เกี่ยวกับ opacity เพื่อไม่ให้เห็นจังหวะไล่จาง
+   (ยังคง transition ของปุ่ม/hover ที่เป็น background/filter ไว้เหมือนเดิม) */
+[data-testid="stAppViewContainer"] * {
+    transition-property: background-color, border-color, color, box-shadow, filter !important;
+}
+
 /* ══ [FIX v26] อีกสาเหตุของการกระพริบ: scroll anchoring ══
    หน้าจอ rerun ทุก 3 วินาที (st_autorefresh) ทุกครั้งที่ DOM ถูกวาดใหม่
    เบราว์เซอร์จะพยายาม "ยึด" ตำแหน่งสกรอลล์กับ element ที่มองเห็นอยู่
@@ -561,7 +584,11 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 .flow-dot {
     position:absolute; top:50%; left:0; width:8px; height:8px; border-radius:50%;
     background:#1d4ed8; transform:translateY(-50%);
-    animation:flowDot 2.4s cubic-bezier(.5,0,.5,1) infinite;
+    /* [FIX v27] ผูกจังหวะกับนาฬิกาเดียวกันทุกครั้งที่วาดใหม่
+       เดิม animation เริ่มนับใหม่ทุก rerun (ทุก 3 วิ) จุดจึงกระโดดกลับไปตั้งต้น
+       negative delay ที่หารลงตัวกับรอบ ทำให้ต่อเนื่องเหมือนไม่เคยหยุด */
+    animation: flowDot 3s linear infinite;
+    animation-delay: -0.001s;
 }
 @keyframes flowDot {
       0% { left:0;    opacity:0; }
