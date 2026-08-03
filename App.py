@@ -979,10 +979,6 @@ def init_db():
     cur.execute('CREATE TABLE IF NOT EXISTS settlements (id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER, debtor TEXT, creditor TEXT, amount REAL, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)')
     cur.execute('CREATE TABLE IF NOT EXISTS online_status (name TEXT PRIMARY KEY, last_seen DATETIME)')
     # [FIX v28] ของที่ต้องหิ้วไปแคมป์ — ใครรับหน้าที่อะไร
-    # [FIX v35] ตำแหน่งล่าสุดของสมาชิกในทริป — ไว้หากันที่ลานกางเต็นท์
-    cur.execute("""CREATE TABLE IF NOT EXISTS locations (
-        trip_id INTEGER, name TEXT, lat REAL, lon REAL, acc REAL,
-        updated_at TEXT, PRIMARY KEY (trip_id, name))""")
     cur.execute("""CREATE TABLE IF NOT EXISTS packing (
         id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER,
         item TEXT NOT NULL, qty TEXT, assignee TEXT,
@@ -1141,7 +1137,6 @@ def rename_user(old, new):
 
 # ── [FIX v11] สำรอง / กู้คืนข้อมูล ────────────────────────────
 BACKUP_TABLES = ["all_users","trips","members","expenses","settlements","notifications","packing"]
-# หมายเหตุ: ไม่สำรอง locations เพราะเป็นตำแหน่งชั่วคราว หมดความหมายเมื่อจบทริป
 
 def export_backup():
     """[FIX v11] Streamlit Community Cloud ใช้ filesystem ชั่วคราว —
@@ -1741,7 +1736,6 @@ SCHEMA_COLS = {
     "members":       {"trip_id","name"},
     "online_status": {"name","last_seen"},
     "packing":       {"trip_id","item","assignee","done","expense_id"},
-    "locations":     {"trip_id","name","lat","lon","updated_at"},
 }
 
 def schema_ready():
@@ -2354,8 +2348,17 @@ if menu == "home":
                 for r in packs:
                     k = r['id']
                     row = st.columns([0.6, 4, 2.2, 1.2])
+                    # [FIX v37] ใส่ค่า done ลงใน key ด้วย
+                    #   ปัญหาเดิม: Streamlit จำค่า checkbox ตาม key ไว้ใน session
+                    #   และค่าที่จำไว้ "ชนะ" พารามิเตอร์ value= เสมอ
+                    #   พอโค้ดอื่น (เช่นการแปลงเป็นบิล) เขียน done=1 ลงฐานข้อมูล
+                    #   checkbox ยังคืนค่าเดิม False → บรรทัดล่างมองว่าผู้ใช้ติ๊กออก
+                    #   แล้วเขียนทับกลับเป็น 0 ทันที = ติ๊กเองไม่ได้ผลเลย
+                    #   พอ key เปลี่ยนตามค่า done มันจะกลายเป็น widget ตัวใหม่
+                    #   จึงอ่านค่าจาก value= ได้ถูกต้อง
+                    _dk = f"pkdone_{k}_{int(bool(r['done']))}"
                     _new_done = row[0].checkbox("เตรียมแล้ว", value=bool(r['done']),
-                                                key=f"pkdone_{k}", label_visibility="collapsed")
+                                                key=_dk, label_visibility="collapsed")
                     if _new_done != bool(r['done']):
                         c = db(); c.execute("UPDATE packing SET done=? WHERE id=?", (int(_new_done), k)); c.commit(); c.close()
                         st.rerun()
@@ -2363,10 +2366,12 @@ if menu == "home":
                     _own = (f'<span class="pk-who" style="background:{person_color(r["assignee"])};">'
                             f'{esc(r["assignee"])}</span>' if r['assignee']
                             else '<span class="pk-who pk-none">ยังไม่มีคนรับ</span>')
+                    _paid_tag = ('<span class="pk-who" style="background:#1d4ed8;">💸 ทำเป็นบิลแล้ว</span>'
+                                 if r['expense_id'] else '')
                     row[1].markdown(
                         f'<div style="{_sty}padding-top:5px;">'
                         f'<b>{esc(r["item"])}</b>'
-                        f'{" · " + esc(r["qty"]) if r["qty"] else ""} {_own}</div>',
+                        f'{" · " + esc(r["qty"]) if r["qty"] else ""} {_own}{_paid_tag}</div>',
                         unsafe_allow_html=True)
                     _opts = ["— ยังไม่มีคนรับ —"] + members
                     _cur = r['assignee'] if r['assignee'] in members else "— ยังไม่มีคนรับ —"
@@ -2460,12 +2465,6 @@ if menu == "home":
                 if len(_cache) > 3:
                     _gps_age = time.time() - _cache[3]
 
-            # [FIX v36] เช็คว่าตอนนี้แชร์ตำแหน่งค้างไว้ไหม (แม้ยังไม่ได้เปิด GPS รอบนี้)
-            c = db()
-            _shared = c.execute("SELECT lat,lon,updated_at FROM locations WHERE trip_id=? AND name=?",
-                                (trip_id, me)).fetchone()
-            c.close()
-
             if _my_lat is not None:
                 _stale = _gps_age is not None and _gps_age > 300     # เกิน 5 นาที
                 st.markdown(
@@ -2480,43 +2479,19 @@ if menu == "home":
                     st.warning("ตำแหน่งนี้อ่านไว้นานแล้ว ถ้าเดินมาที่อื่นให้กดปุ่ม 🛰️ "
                                "ด้านบนอ่านใหม่ หรือกดล้างตำแหน่ง")
 
-                _g1, _g2 = st.columns(2)
-                if _g1.button("⛺ ตั้งตรงนี้เป็นจุดกางเต็นท์", use_container_width=True,
-                              disabled=cur_closed):
+                if st.button("⛺ ตั้งตรงนี้เป็นจุดกางเต็นท์", use_container_width=True,
+                             type="primary", disabled=cur_closed):
                     c = db()
                     c.execute("UPDATE trips SET lat=?, lon=? WHERE id=?", (_my_lat, _my_lon, trip_id))
                     c.commit(); c.close()
                     flash("ตั้งจุดกางเต็นท์จากตำแหน่งปัจจุบันแล้ว", "ok"); st.rerun()
-                if _g2.button("📡 แชร์ตำแหน่งให้เพื่อนในทริป", use_container_width=True,
-                              type="primary"):
-                    c = db()
-                    c.execute("INSERT INTO locations (trip_id,name,lat,lon,acc,updated_at) "
-                              "VALUES (?,?,?,?,?,?) ON CONFLICT(trip_id,name) DO UPDATE SET "
-                              "lat=excluded.lat, lon=excluded.lon, acc=excluded.acc, "
-                              "updated_at=excluded.updated_at",
-                              (trip_id, me, _my_lat, _my_lon, _my_acc, now_str()))
-                    c.commit(); c.close()
-                    flash("แชร์ตำแหน่งแล้ว เพื่อนในทริปจะเห็นบนแผนที่", "ok"); st.rerun()
 
-            # ── [FIX v36] ล้างตำแหน่ง — เดิมไม่มีทางเคลียร์เลย ────────
-            #   แยกสองปุ่มเพราะเป็นคนละเรื่อง:
-            #   "ล้างของฉัน" = ลบค่าที่ค้างในเครื่องนี้ (คนอื่นไม่เกี่ยว)
-            #   "หยุดแชร์"   = ลบออกจากฐานข้อมูล เพื่อนจะไม่เห็นเราบนแผนที่อีก
-            if _my_lat is not None or _shared:
-                _c1, _c2 = st.columns(2)
-                if _my_lat is not None:
-                    if _c1.button("🧹 ล้างตำแหน่งของฉัน", use_container_width=True):
-                        st.session_state.pop("my_gps", None)
-                        flash("ล้างตำแหน่งในเครื่องแล้ว", "ok"); st.rerun()
-                if _shared:
-                    if _c2.button("🚫 หยุดแชร์ตำแหน่ง", use_container_width=True):
-                        c = db()
-                        c.execute("DELETE FROM locations WHERE trip_id=? AND name=?", (trip_id, me))
-                        c.commit(); c.close()
-                        flash("หยุดแชร์แล้ว เพื่อนจะไม่เห็นตำแหน่งคุณ", "ok"); st.rerun()
-                if _shared:
-                    st.caption(f"📡 กำลังแชร์ตำแหน่งอยู่ (อัปเดตล่าสุด "
-                               f"{esc(str(_shared['updated_at'])[11:16])})")
+
+            # [FIX v37] ล้างตำแหน่งที่ค้างในเครื่อง (ฟีเจอร์แชร์ตำแหน่งถูกถอดออกแล้ว)
+            if _my_lat is not None:
+                if st.button("🧹 ล้างตำแหน่งของฉัน", use_container_width=True):
+                    st.session_state.pop("my_gps", None)
+                    flash("ล้างตำแหน่งในเครื่องแล้ว", "ok"); st.rerun()
 
             st.markdown('<div class="section-head">⛺ จุดกางเต็นท์ / จุดนัดพบ</div>',
                         unsafe_allow_html=True)
@@ -2565,21 +2540,10 @@ if menu == "home":
                                horizontal=True, key="camp_mapmode",
                                label_visibility="collapsed")
                 if _mv.startswith("🗺️"):
-                    # [FIX v35] วางทั้งจุดกางเต็นท์ ตำแหน่งเรา และเพื่อนที่แชร์ไว้ ลงแผนที่เดียว
-                    c = db()
-                    _locs = c.execute(
-                        "SELECT name,lat,lon,updated_at FROM locations WHERE trip_id=? "
-                        "AND name IN (%s)" % ",".join("?"*len(members)) if members else
-                        "SELECT name,lat,lon,updated_at FROM locations WHERE trip_id=? AND 0",
-                        tuple([trip_id] + members)).fetchall() if members else []
-                    c.close()
+                    # [FIX v37] เหลือแค่จุดกางเต็นท์กับตำแหน่งเรา (ถอดการแชร์ตำแหน่งออกแล้ว)
                     _rows = [{"lat": _lat, "lon": _lon, "c": "#dc2626", "s": 70}]
                     if _my_lat is not None:
                         _rows.append({"lat": _my_lat, "lon": _my_lon, "c": "#1d4ed8", "s": 55})
-                    for _L in _locs:
-                        if _L["name"] != me:
-                            _rows.append({"lat": _L["lat"], "lon": _L["lon"],
-                                          "c": person_color(_L["name"]), "s": 45})
                     _pt = pd.DataFrame(_rows)
                     # [FIX v32] กำหนดความสูงชัดเจน — ค่าเริ่มต้นของ st.map คือ 500px
                     #   พารามิเตอร์ height เพิ่งมีใน Streamlit รุ่นใหม่ ๆ จึงเผื่อทางถอยไว้
@@ -2588,21 +2552,8 @@ if menu == "home":
                                zoom=13, height=300)
                     except TypeError:
                         st.map(_pt, latitude="lat", longitude="lon", color="c", size="s", zoom=13)
-                    st.caption("🔴 จุดกางเต็นท์ · 🔵 ตำแหน่งคุณ · จุดสีอื่น = เพื่อนที่แชร์ตำแหน่งไว้")
-
-                    if _locs:
-                        with st.expander(f"เพื่อนที่แชร์ตำแหน่งไว้ ({len(_locs)} คน)"):
-                            for _L in _locs:
-                                _dm = haversine_m(_lat, _lon, _L["lat"], _L["lon"])
-                                st.markdown(
-                                    '<div style="display:flex;align-items:center;gap:10px;'
-                                    'padding:7px 0;border-bottom:1px solid #dbeafe;">'
-                                    + avatar_html(_L["name"], avatars.get(_L["name"]), size=30, font=12)
-                                    + f'<div style="flex:1;"><div style="font-size:13px;font-weight:600;'
-                                    f'color:#000;">{esc(_L["name"])}</div>'
-                                    f'<div style="font-size:11px;color:#6b7280;">'
-                                    f'ห่างจุดกางเต็นท์ {fmt_dist(_dm)} · อัปเดต {esc(str(_L["updated_at"])[11:16])}'
-                                    f'</div></div></div>', unsafe_allow_html=True)
+                    st.caption("🔴 จุดกางเต็นท์" +
+                               (" · 🔵 ตำแหน่งคุณ" if _my_lat is not None else ""))
                 else:
                     # Google Maps แบบฝัง: ใช้ได้โดยไม่ต้องมี API key
                     #   แต่ Google อาจบล็อกการฝังในบาง network/เบราว์เซอร์
