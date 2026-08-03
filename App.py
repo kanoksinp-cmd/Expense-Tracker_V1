@@ -8,6 +8,7 @@ import time
 import urllib.parse
 import base64
 import re
+import math
 import requests
 import qrcode
 import html
@@ -440,11 +441,13 @@ div.st-key-menubar .stButton > button[kind="primary"] p {
     padding-bottom: 2rem !important;
     max-width: 100% !important;
 }
-@media (max-width: 640px) {
-    /* [FIX v39] ระยะขอบ/padding ของ navbar ย้ายไปรวมที่บล็อกมือถือหลักด้านล่าง
-       เหลือไว้เฉพาะที่ไม่ซ้ำ */
+@media (max-width:600px) {
+    .block-container, .main .block-container {
+        padding-left:.5rem !important; padding-right:.5rem !important;
+    }
     .navbar-wrap .nb-title { display:none; }
     .navbar-wrap .nb-trip  { max-width:100px; }
+    .navbar-wrap .navbar   { padding-right:206px; }        /* [FIX v7] */
     div.st-key-userbtn .stButton button { max-width:104px !important; }
 }
 
@@ -512,14 +515,7 @@ div[class*="st-key-tabbar"] {
     border-radius: 8px 8px 0 0 !important;
     padding: 0 4px !important;
     margin-bottom: 14px !important;
-    /* [FIX v39] 5 แท็บบนจอ 380px = แท็บละ 76px ชื่อไทยหายหมด
-       ให้เลื่อนแนวนอนแทนการบีบ ชื่อจะได้อ่านออกครบ */
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
 }
-div[class*="st-key-tabbar"]::-webkit-scrollbar { display: none; }
 div[class*="st-key-tabbar"] div[data-testid="stHorizontalBlock"] {
     gap: 0 !important;
 }
@@ -604,7 +600,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 }
 .hero-baht { font-size:20px; font-weight:500; margin-left:6px; opacity:.75; }
 .hero-sub { font-size:12px; color:#6b7280 !important; margin-top:5px; line-height:1.5; }
-
+@media (max-width:600px) { .hero-amt { font-size:38px; } }
 
 /* ══ [FIX v21] แผนโอนเงินแบบเส้นโยง — ฉากเด่นของแอป ══ */
 .flow {
@@ -654,7 +650,10 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 }
 .flow-clear-t { font-family:var(--font-display); font-size:16px; font-weight:600; color:#15803d !important; margin-top:6px; }
 .flow-clear-s { font-size:12.5px; color:#166534 !important; }
-
+@media (max-width:600px) {
+    .flow-side { width:64px; }
+    .flow-amt { font-size:17px; }
+}
 
 /* ══ [FIX v21] หน้าจอว่าง — บอกทางต่อ ไม่ใช่แค่บอกว่าไม่มี ══ */
 .empty {
@@ -711,12 +710,6 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     vertical-align:middle;
 }
 .pk-none { background:#9ca3af; }
-/* [FIX v39] เส้นคั่นระหว่างรายการ ให้เห็นว่าแต่ละชิ้นเริ่ม-จบตรงไหน
-   จำเป็นขึ้นมากเมื่อแยกเป็น 2 บรรทัดต่อรายการ */
-.pk-sep { border-bottom:1px solid #dbeafe; margin:2px 0 10px; }
-@media (max-width: 640px) {
-    .pk-sep { margin:6px 0 14px; border-bottom-width:1.5px; }
-}
 
 /* [FIX v32] คุมความสูงแผนที่ไม่ให้ล้นทับปุ่มด้านล่าง
    canvas ของ deck.gl บางครั้งขยายเกินคอนเทนเนอร์จนดันเนื้อหาอื่นตกจอ */
@@ -759,7 +752,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     color:#dc2626 !important; flex-shrink:0; font-variant-numeric:tabular-nums;
 }
 .camp-tmin { font-size:14px; color:#6b7280 !important; font-weight:500; }
-@media (max-width: 640px) {
+@media (max-width:600px) {
     .camp-sub { font-size:10.5px; }
     .camp-tmp { font-size:17px; }
 }
@@ -783,146 +776,30 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     font-family:var(--font-display); font-weight:700; font-size:14px; color:#000 !important;
 }
 .cat-pct { width:38px; text-align:right; flex-shrink:0; font-size:12px; color:#6b7280 !important; }
-@media (max-width: 640px) {
+@media (max-width:600px) {
     .cat-nm { width:74px; font-size:12px; }
     .cat-amt { width:64px; font-size:13px; }
 }
 
-/* ══════════════════════════════════════════════════════════════
-   [FIX v39] โหมดมือถือ
-   แอปนี้ถูกใช้ตอนอยู่ร้านอาหารและที่ลานกางเต็นท์ = มือถือคืออุปกรณ์หลัก
-   ปัญหาที่เจอ: Streamlit ไม่ยุบ st.columns ให้เองบนจอแคบ คอลัมน์เลย
-   ถูกบีบจนอ่านไม่ออก เช่นแถวของที่ต้องหิ้วมี 4 คอลัมน์ = คอลัมน์ละ ~85px
-   ══════════════════════════════════════════════════════════════ */
-@media (max-width: 640px) {
-
-    /* ── 1. คอลัมน์ยุบเป็นแถวเดียวต่อบรรทัด ── */
-    [data-testid="stHorizontalBlock"] {
-        flex-wrap: wrap !important;
-        gap: 6px !important;
-    }
-    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
-        flex: 1 1 100% !important;
-        min-width: 100% !important;
-        width: 100% !important;
-    }
-
-    /* ── 2. ยกเว้นแถบที่ต้องเรียงแนวนอนเสมอ ── */
-    div.st-key-menubar [data-testid="stHorizontalBlock"],
-    div[class*="st-key-tabbar"] [data-testid="stHorizontalBlock"],
-    div.st-key-userbtn [data-testid="stHorizontalBlock"] {
-        flex-wrap: nowrap !important;
-        gap: 0 !important;
-    }
-    /* แถบเมนูหลักต้องยังเฉลี่ยเต็มความกว้างเหมือนเดิม */
-    div.st-key-menubar [data-testid="stHorizontalBlock"] > [data-testid="column"] {
-        flex: 1 1 0 !important;
-        min-width: 0 !important;
-        width: auto !important;
-    }
-    /* แถบแท็บกว้างตามข้อความ แล้วเลื่อนแนวนอนเอา */
-    div[class*="st-key-tabbar"] [data-testid="stHorizontalBlock"] > [data-testid="column"],
-    div.st-key-userbtn [data-testid="stHorizontalBlock"] > [data-testid="column"] {
-        flex: 0 0 auto !important;
-        min-width: 0 !important;
-        width: auto !important;
-    }
-
-    /* ── 3. กลุ่มที่วาง 2 ช่องต่อแถวได้ (การ์ดยอดรายคน / ช่องติ๊กคนหาร) ── */
-    div.st-key-splitcols [data-testid="stHorizontalBlock"] > [data-testid="column"],
-    div.st-key-netcards [data-testid="stHorizontalBlock"] > [data-testid="column"] {
-        flex: 1 1 calc(50% - 4px) !important;
-        min-width: calc(50% - 4px) !important;
-        width: auto !important;
-    }
-    div.st-key-splitcols [data-testid="stHorizontalBlock"],
-    div.st-key-netcards [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
-
-    /* ── 4. เป้ากดต้องใหญ่พอสำหรับนิ้ว (มาตรฐาน 44px) ── */
-    .stButton button,
-    [data-testid="stDownloadButton"] button,
-    [data-testid="stLinkButton"] a {
-        min-height: 44px !important;
-        font-size: 14px !important;
-    }
-    div[class*="st-key-tabbar"] .stButton button {
-        min-height: 46px !important;
-        padding: 10px 13px !important;
-        font-size: 13.5px !important;
-        width: auto !important;
-    }
-    /* แท็บที่เลือกอยู่ให้เด่นชัดกว่าเดิม เพราะบนมือถือเห็นไม่ครบทุกแท็บพร้อมกัน */
-    div[class*="st-key-tabbar"] .stButton button[kind="primary"] {
-        border-bottom-width: 4px !important;
-    }
-    div.st-key-menubar .stButton > button { height: 46px !important; }
-    [data-testid="stCheckbox"] { min-height: 40px !important; display:flex; align-items:center; }
-    [data-testid="stTextInput"] input,
-    [data-testid="stNumberInput"] input,
-    [data-testid="stSelectbox"] > div > div {
-        min-height: 42px !important;
-        font-size: 16px !important;   /* ต่ำกว่า 16px iOS จะซูมเข้าเองตอนกดพิมพ์ */
-    }
-
-    /* ── 5. แถบบนเตี้ยลง คืนพื้นที่ให้เนื้อหา ── */
-    .navbar-wrap .navbar { height: 46px; padding-right: 128px; }
-    div.st-key-menubar { top: 46px !important; }
-    .hdr-fill { height: 98px; }
-    .block-container, .main .block-container {
-        padding-top: 96px !important;
-        padding-left: .6rem !important; padding-right: .6rem !important;
-    }
-    div.st-key-userbtn { top: 6px !important; right: 8px !important; }
-
-    /* ── 6. แชท: ช่องพิมพ์ต้องอยู่บรรทัดเดียว ไม่ยุบตามกฎด้านบน ── */
-    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] {
-        flex-wrap: nowrap !important;
-        gap: 5px !important;
-        align-items: flex-end !important;
-    }
-    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
-        flex: 0 0 auto !important; min-width: 0 !important; width: auto !important;
-    }
-    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child {
-        flex: 1 1 auto !important;
-    }
-    .fb-chat-body { max-height: 52vh !important; }
-
-    /* ── 7. ตัวหนังสือเล็กเกินไปบนมือถือ ── */
-    .bill-meta, .hero-meta, .hero-sub, .camp-co, .pk-stat { font-size: 12px !important; }
-    .bill-desc { font-size: 15px !important; white-space: normal !important; }
-    .bill-row { align-items: flex-start !important; padding: 11px !important; }
-    .bill-amt { font-size: 15px !important; }
-    [data-testid="stCaptionContainer"] p { font-size: 12px !important; }
-
-    /* ── 8. ยอดของฉัน: ให้เต็มตาแต่ไม่กินทั้งจอ ── */
-    .hero { padding: 14px 15px 16px !important; border-radius: 14px !important; }
-    .hero-amt { font-size: 40px !important; }
-
-    /* ── 9. แผนโอนเงิน: avatar เล็กลงเพื่อให้ยอดเงินมีที่พอ ── */
-    .flow { padding: 13px 11px 10px !important; gap: 6px !important; }
-    .flow-side { width: 58px !important; }
-    .flow-amt { font-size: 16px !important; }
-    .flow-nm { font-size: 11.5px !important; }
-
-    /* ── 10. พยากรณ์อากาศ: ข้อมูลย่อยขึ้นบรรทัดใหม่ได้ ── */
-    .camp-day { padding: 10px 11px !important; gap: 9px !important; }
-    .camp-sub { white-space: normal !important; line-height: 1.6 !important; }
-    .camp-dt { width: 44px !important; font-size: 12px !important; }
-
-    /* ── 11. ป๊อปอัพแจ้งเตือน: อย่าล้นขอบจอ ── */
-    .flash-box { max-width: calc(100vw - 32px) !important; }
-
-    /* ── 12. ตารางหมวดหมู่: ตัดคอลัมน์ % ที่ไม่จำเป็นออก ── */
-    .cat-pct { display: none !important; }
-    .cat-row { padding: 8px 11px !important; }
-
-    /* ── 13. ฟอร์ม: ลดระยะห่างที่ทำให้ต้องเลื่อนเยอะ ── */
-    [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .55rem !important; }
-    div.st-key-menubar [data-testid="stVerticalBlock"],
-    div[class*="st-key-tabbar"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
-    .section-head { font-size: 14px !important; padding: 8px 0 6px !important; margin-bottom: 9px !important; }
+/* ══ [FIX v35] เข็มทิศออฟไลน์ ══ */
+.nav-box {
+    display:flex; align-items:center; gap:16px;
+    background:#f5f9ff; border:2px solid #1d4ed8; border-radius:14px;
+    padding:14px 18px; margin:10px 0 4px;
 }
+.nav-arrow {
+    font-size:38px; line-height:1; color:#1d4ed8 !important;
+    flex-shrink:0; transform-origin:center;
+    /* ➤ ชี้ไปทางขวาโดยธรรมชาติ หมุน -90 เพื่อให้ 0° = ชี้ขึ้น (ทิศเหนือ) */
+    margin-top:-2px;
+}
+.nav-mid { flex:1; min-width:0; }
+.nav-dist {
+    font-family:var(--font-display); font-weight:700; font-size:26px;
+    color:#000 !important; line-height:1.2;
+}
+.nav-sub { font-size:12.5px; color:#374151 !important; line-height:1.5; }
+.nav-hint { font-size:11px; color:#6b7280 !important; line-height:1.6; margin-bottom:10px; }
 
 /* ══ CARDS ══ */
 .card {
@@ -1001,7 +878,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
      78% { opacity: 1; transform: translateY(0)    scale(1);   }
     100% { opacity: 0; transform: translateY(-8px) scale(.97); visibility: hidden; }
 }
-@media (max-width: 640px) {
+@media (max-width:600px) {
     .flash-box { min-width: 0; padding: 15px 20px; font-size: 15px; }
 }
 
@@ -1437,6 +1314,43 @@ def fetch_forecast(lat, lon, days=7):
         return True, d
     except requests.RequestException as e:
         return False, f"ต่ออินเทอร์เน็ตไม่ได้: {e}"
+
+# ── [FIX v35] ระยะทางและทิศทาง ────────────────────────────────
+#   คำนวณเองทั้งหมด ไม่ต้องเรียก API — ใช้ได้แม้ไม่มีสัญญาณเน็ต
+#   ซึ่งเป็นสถานการณ์ปกติที่ลานกางเต็นท์
+def haversine_m(lat1, lon1, lat2, lon2):
+    """ระยะทางเส้นตรงบนผิวโลก หน่วยเมตร"""
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1); dl = math.radians(lon2 - lon1)
+    a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+    return 2 * R * math.asin(math.sqrt(a))
+
+def bearing_deg(lat1, lon1, lat2, lon2):
+    """ทิศจากจุดแรกไปจุดที่สอง 0=เหนือ 90=ตะวันออก"""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lon2 - lon1)
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1)*math.sin(p2) - math.sin(p1)*math.cos(p2)*math.cos(dl)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+COMPASS = ["เหนือ","ตะวันออกเฉียงเหนือ","ตะวันออก","ตะวันออกเฉียงใต้",
+           "ใต้","ตะวันตกเฉียงใต้","ตะวันตก","ตะวันตกเฉียงเหนือ"]
+
+def compass_name(deg):
+    return COMPASS[int((deg + 22.5) % 360 // 45)]
+
+def fmt_dist(m):
+    if m < 1000: return f"{m:,.0f} ม."
+    return f"{m/1000:,.2f} กม."
+
+def walk_time(m):
+    """เวลาเดินโดยประมาณที่ 4.5 กม./ชม. — ใช้กะเวลาก่อนมืด"""
+    mins = m / 75.0
+    if mins < 1: return "ถึงแล้ว"
+    if mins < 60: return f"เดินราว {mins:.0f} นาที"
+    return f"เดินราว {mins/60:.1f} ชม."
+
 
 def parse_latlon(text):
     """รับได้ทั้ง '18.79, 98.98' และลิงก์ Google Maps ที่มี @lat,lon หรือ q=lat,lon
@@ -2062,13 +1976,9 @@ if menu == "home":
                                               [f"{CAT_ICON[n]} {n}" for n in CAT_NAMES])
                         fup    = st.file_uploader("📎 สลิป:", type=['jpg','png','jpeg'])
                     st.markdown("**👥 ร่วมหาร:**")
-                    # [FIX v39] ห่อด้วยคอนเทนเนอร์ที่มี key เพื่อให้ CSS จับได้
-                    #   บนมือถือจะยุบเหลือ 2 ช่องต่อแถวแทนที่จะบีบ 5 ช่อง
-                    with st.container(key="splitcols"):
-                        nc = min(len(members),5)
-                        sc = st.columns(nc)
-                        split_to = [m for i,m in enumerate(members)
-                                    if sc[i%nc].checkbox(m, value=True, key=f"sp_{m}")]
+                    nc = min(len(members),5)
+                    sc = st.columns(nc)
+                    split_to = [m for i,m in enumerate(members) if sc[i%nc].checkbox(m, value=True, key=f"sp_{m}")]
 
                     # [FIX v22] หารไม่เท่ากัน — ของเดิมหารเท่ากันเสมอ ซึ่งไม่ตรงกับ
                     #   การใช้จริง (คนไม่กินเหล้า ห้องพักคนละแบบ ใครสั่งเพิ่มจ่ายเพิ่ม)
@@ -2219,8 +2129,7 @@ if menu == "home":
                             "➕ ไปหน้าเพิ่มบิล", "go_sum_add", ("tab_home", 0))
             else:
                 st.markdown("#### 📊 ยอดสรุปรายคน")
-                _netbox = st.container(key="netcards")   # [FIX v39] มือถือ = 2 ใบต่อแถว
-                nc2 = min(len(net),4); cols2 = _netbox.columns(nc2)
+                nc2 = min(len(net),4); cols2 = st.columns(nc2)
                 for i,(m2,b) in enumerate(sorted(net.items(), key=lambda x:-x[1])):
                     clr = "#16a34a" if b>0.01 else ("#dc2626" if b<-0.01 else "#6b7280")
                     lbl = "รับคืน" if b>0.01 else ("ต้องจ่าย" if b<-0.01 else "เท่ากัน")
@@ -2438,12 +2347,7 @@ if menu == "home":
 
                 for r in packs:
                     k = r['id']
-                    # [FIX v39] แยกเป็น 2 แถว: บรรทัดบน = ติ๊ก + ชื่อของ (อ่านง่าย)
-                    #   บรรทัดล่าง = เลือกคนรับ + ปุ่มลบ ซึ่งบนมือถือจะยุบเป็นเต็มบรรทัด
-                    #   ของเดิมยัด 4 คอลัมน์ในแถวเดียว บนจอ 380px เหลือช่องละ ~85px
-                    row = st.columns([0.9, 6])
-                    row2 = st.columns([3, 1])
-                    row = [row[0], row[1], row2[0], row2[1]]
+                    row = st.columns([0.6, 4, 2.2, 1.2])
                     # [FIX v37] ใส่ค่า done ลงใน key ด้วย
                     #   ปัญหาเดิม: Streamlit จำค่า checkbox ตาม key ไว้ใน session
                     #   และค่าที่จำไว้ "ชนะ" พารามิเตอร์ value= เสมอ
@@ -2480,7 +2384,6 @@ if menu == "home":
                     if row[3].button("ลบ", key=f"pkdel_{k}", use_container_width=True):
                         c = db(); c.execute("DELETE FROM packing WHERE id=?", (k,)); c.commit(); c.close()
                         flash("ลบรายการแล้ว", "warn"); st.rerun()
-                    st.markdown('<div class="pk-sep"></div>', unsafe_allow_html=True)
 
                 # [FIX v28] จุดที่เชื่อมกับระบบบิล — ของที่ซื้อมาแล้วกลายเป็นบิลได้เลย
                 st.markdown('<div class="section-head" style="margin-top:14px;">'
@@ -2530,6 +2433,66 @@ if menu == "home":
             _pname = _tr["place_name"] if _tr else None
             _lat, _lon = (_tr["lat"], _tr["lon"]) if _tr else (None, None)
 
+            # ── [FIX v35] GPS: อ่านตำแหน่งปัจจุบันจากเบราว์เซอร์ ──────
+            #   ต้องใช้ไลบรารีเสริมเพราะ Streamlit เองอ่าน GPS ไม่ได้
+            #   ถ้าไม่ได้ติดตั้งไว้ ส่วนอื่นยังใช้ได้ปกติ แค่กรอกพิกัดเอง
+            st.markdown('<div class="section-head">🛰️ ตำแหน่งของฉัน</div>',
+                        unsafe_allow_html=True)
+            _my_lat = _my_lon = _my_acc = None
+            try:
+                from streamlit_geolocation import streamlit_geolocation
+                _gp = streamlit_geolocation()
+                if _gp and _gp.get("latitude") is not None:
+                    _my_lat, _my_lon = float(_gp["latitude"]), float(_gp["longitude"])
+                    _my_acc = _gp.get("accuracy")
+                    # [FIX v36] เก็บเวลาที่อ่านด้วย — ตำแหน่งที่ค้างไว้นาน ๆ อาจเป็นของ
+                    #   จุดที่เดินผ่านมาแล้ว ถ้าไม่บอกเวลาจะหลงเชื่อว่าเป็นตำแหน่งตอนนี้
+                    st.session_state["my_gps"] = (_my_lat, _my_lon, _my_acc, time.time())
+                else:
+                    st.caption("กดปุ่มด้านบนแล้วอนุญาตให้เบราว์เซอร์เข้าถึงตำแหน่ง")
+            except ImportError:
+                st.info("ยังไม่ได้ติดตั้ง `streamlit-geolocation` — "
+                        "เพิ่มบรรทัดนี้ใน requirements.txt แล้ว reboot app "
+                        "จึงจะอ่านตำแหน่งอัตโนมัติได้ (ระหว่างนี้กรอกพิกัดเองได้)")
+            except Exception as _e:
+                st.warning(f"อ่านตำแหน่งไม่ได้: {_e}")
+
+            # ใช้ค่าที่เคยอ่านได้ในรอบก่อน (component คืนค่าเฉพาะรอบที่กด)
+            _gps_age = None
+            if _my_lat is None and st.session_state.get("my_gps"):
+                _cache = st.session_state["my_gps"]
+                _my_lat, _my_lon, _my_acc = _cache[0], _cache[1], _cache[2]
+                if len(_cache) > 3:
+                    _gps_age = time.time() - _cache[3]
+
+            if _my_lat is not None:
+                _stale = _gps_age is not None and _gps_age > 300     # เกิน 5 นาที
+                st.markdown(
+                    f'<div class="camp-loc"><div class="camp-pin">🛰️</div><div>'
+                    f'<div class="camp-nm">ตำแหน่งปัจจุบันของคุณ</div>'
+                    f'<div class="camp-co">{_my_lat:.5f}, {_my_lon:.5f}'
+                    + (f' · แม่นยำ ±{_my_acc:,.0f} ม.' if _my_acc else '')
+                    + (f' · อ่านเมื่อ {_gps_age/60:.0f} นาทีที่แล้ว' if _gps_age and _gps_age >= 60
+                       else (' · เพิ่งอ่าน' if _gps_age is not None else ''))
+                    + '</div></div></div>', unsafe_allow_html=True)
+                if _stale:
+                    st.warning("ตำแหน่งนี้อ่านไว้นานแล้ว ถ้าเดินมาที่อื่นให้กดปุ่ม 🛰️ "
+                               "ด้านบนอ่านใหม่ หรือกดล้างตำแหน่ง")
+
+                if st.button("⛺ ตั้งตรงนี้เป็นจุดกางเต็นท์", use_container_width=True,
+                             type="primary", disabled=cur_closed):
+                    c = db()
+                    c.execute("UPDATE trips SET lat=?, lon=? WHERE id=?", (_my_lat, _my_lon, trip_id))
+                    c.commit(); c.close()
+                    flash("ตั้งจุดกางเต็นท์จากตำแหน่งปัจจุบันแล้ว", "ok"); st.rerun()
+
+
+            # [FIX v37] ล้างตำแหน่งที่ค้างในเครื่อง (ฟีเจอร์แชร์ตำแหน่งถูกถอดออกแล้ว)
+            if _my_lat is not None:
+                if st.button("🧹 ล้างตำแหน่งของฉัน", use_container_width=True):
+                    st.session_state.pop("my_gps", None)
+                    flash("ล้างตำแหน่งในเครื่องแล้ว", "ok"); st.rerun()
+
             st.markdown('<div class="section-head">⛺ จุดกางเต็นท์ / จุดนัดพบ</div>',
                         unsafe_allow_html=True)
             with st.form("camp_loc"):
@@ -2577,8 +2540,11 @@ if menu == "home":
                                horizontal=True, key="camp_mapmode",
                                label_visibility="collapsed")
                 if _mv.startswith("🗺️"):
-                    # [FIX v38] เหลือแค่หมุดจุดกางเต็นท์ (ถอดตำแหน่งของฉันออกแล้ว)
-                    _pt = pd.DataFrame([{"lat": _lat, "lon": _lon, "c": "#dc2626", "s": 70}])
+                    # [FIX v37] เหลือแค่จุดกางเต็นท์กับตำแหน่งเรา (ถอดการแชร์ตำแหน่งออกแล้ว)
+                    _rows = [{"lat": _lat, "lon": _lon, "c": "#dc2626", "s": 70}]
+                    if _my_lat is not None:
+                        _rows.append({"lat": _my_lat, "lon": _my_lon, "c": "#1d4ed8", "s": 55})
+                    _pt = pd.DataFrame(_rows)
                     # [FIX v32] กำหนดความสูงชัดเจน — ค่าเริ่มต้นของ st.map คือ 500px
                     #   พารามิเตอร์ height เพิ่งมีใน Streamlit รุ่นใหม่ ๆ จึงเผื่อทางถอยไว้
                     try:
@@ -2586,7 +2552,8 @@ if menu == "home":
                                zoom=13, height=300)
                     except TypeError:
                         st.map(_pt, latitude="lat", longitude="lon", color="c", size="s", zoom=13)
-                    st.caption("🔴 จุดกางเต็นท์")
+                    st.caption("🔴 จุดกางเต็นท์" +
+                               (" · 🔵 ตำแหน่งคุณ" if _my_lat is not None else ""))
                 else:
                     # Google Maps แบบฝัง: ใช้ได้โดยไม่ต้องมี API key
                     #   แต่ Google อาจบล็อกการฝังในบาง network/เบราว์เซอร์
@@ -2600,6 +2567,24 @@ if menu == "home":
                         f'loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>')
                     st.caption("ถ้าช่องแผนที่ว่างเปล่า แปลว่าเบราว์เซอร์บล็อกการฝังของ Google "
                                "— สลับไปใช้ “แผนที่ในหน้า” ได้เลย")
+
+                # ── [FIX v35] เข็มทิศออฟไลน์ ──────────────────────
+                #   ที่ลานกางเต็นท์มักไม่มีสัญญาณ Google Maps จึงเปิดไม่ได้
+                #   ส่วนนี้คำนวณเองล้วน ๆ ไม่เรียกเน็ต ใช้เดินกลับเต็นท์ตอนมืดได้
+                if _my_lat is not None:
+                    _dm = haversine_m(_my_lat, _my_lon, _lat, _lon)
+                    _bg = bearing_deg(_my_lat, _my_lon, _lat, _lon)
+                    st.markdown(
+                        f'<div class="nav-box">'
+                        f'<div class="nav-arrow" style="transform:rotate({_bg - 90:.0f}deg);">➤</div>'
+                        f'<div class="nav-mid">'
+                        f'<div class="nav-dist money">{fmt_dist(_dm)}</div>'
+                        f'<div class="nav-sub">ทาง{compass_name(_bg)} ({_bg:.0f}°) · {walk_time(_dm)}</div>'
+                        f'</div></div>'
+                        '<div class="nav-hint">ลูกศรชี้ทิศจากตำแหน่งคุณไปจุดกางเต็นท์ '
+                        '(อิงทิศเหนือจริง ให้หันหน้าไปทางเหนือแล้วเทียบ) '
+                        'ส่วนนี้คำนวณในเครื่อง ใช้ได้แม้ไม่มีสัญญาณ</div>',
+                        unsafe_allow_html=True)
 
                 _mc1, _mc2 = st.columns(2)
                 _mc1.link_button("🗺️ เปิดใน Google Maps", _url, use_container_width=True)
@@ -3099,8 +3084,7 @@ elif menu == "chat":
                 with st.form("ncf", clear_on_submit=True):
                     nt=st.selectbox("ถึง:", others)
                     nm=st.text_input("ข้อความ", placeholder="พิมพ์ข้อความ...", label_visibility="collapsed")
-                    _cp0 = st.container(key="composer_new")
-                    b1,b2=_cp0.columns([3,1.2])
+                    b1,b2=st.columns([3,1])
                     if b1.form_submit_button("ส่ง ▶", type="primary", use_container_width=True) and nm.strip():
                         c=db(); c.execute("INSERT INTO notifications (trip_id,to_user,from_user,message,is_auto,is_read,timestamp) VALUES (?,?,?,?,0,0,?)",(trip_id,nt,me,nm.strip(),now_str())); c.commit(); c.close()
                         st.session_state["chat_partner"]=nt; st.rerun()
@@ -3154,10 +3138,7 @@ elif menu == "chat":
 
                 if pt!="🤖 ระบบ":
                     with st.form(key=f"rp_{pt}", clear_on_submit=True):
-                        # [FIX v39] ช่องพิมพ์ + ปุ่มส่ง ต้องอยู่บรรทัดเดียวเหมือนแอปแชททั่วไป
-                        #   จึงกันไม่ให้ยุบตามกฎมือถือ (ดู .st-key-composer ใน CSS)
-                        _cp = st.container(key=f"composer_{pt}")
-                        ri,rb,rl=_cp.columns([6,1.3,1.3])
+                        ri,rb,rl=st.columns([6,1,1])
                         rtx=ri.text_input("ข้อความตอบกลับ",placeholder=f"พิมพ์ถึง {esc(pt)}...",label_visibility="collapsed")
                         snt=rb.form_submit_button("▶",type="primary",use_container_width=True)
                         lkd=rl.form_submit_button("👍",use_container_width=True)
