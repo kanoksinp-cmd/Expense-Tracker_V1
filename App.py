@@ -440,13 +440,11 @@ div.st-key-menubar .stButton > button[kind="primary"] p {
     padding-bottom: 2rem !important;
     max-width: 100% !important;
 }
-@media (max-width:600px) {
-    .block-container, .main .block-container {
-        padding-left:.5rem !important; padding-right:.5rem !important;
-    }
+@media (max-width: 640px) {
+    /* [FIX v39] ระยะขอบ/padding ของ navbar ย้ายไปรวมที่บล็อกมือถือหลักด้านล่าง
+       เหลือไว้เฉพาะที่ไม่ซ้ำ */
     .navbar-wrap .nb-title { display:none; }
     .navbar-wrap .nb-trip  { max-width:100px; }
-    .navbar-wrap .navbar   { padding-right:206px; }        /* [FIX v7] */
     div.st-key-userbtn .stButton button { max-width:104px !important; }
 }
 
@@ -514,7 +512,14 @@ div[class*="st-key-tabbar"] {
     border-radius: 8px 8px 0 0 !important;
     padding: 0 4px !important;
     margin-bottom: 14px !important;
+    /* [FIX v39] 5 แท็บบนจอ 380px = แท็บละ 76px ชื่อไทยหายหมด
+       ให้เลื่อนแนวนอนแทนการบีบ ชื่อจะได้อ่านออกครบ */
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
 }
+div[class*="st-key-tabbar"]::-webkit-scrollbar { display: none; }
 div[class*="st-key-tabbar"] div[data-testid="stHorizontalBlock"] {
     gap: 0 !important;
 }
@@ -599,7 +604,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 }
 .hero-baht { font-size:20px; font-weight:500; margin-left:6px; opacity:.75; }
 .hero-sub { font-size:12px; color:#6b7280 !important; margin-top:5px; line-height:1.5; }
-@media (max-width:600px) { .hero-amt { font-size:38px; } }
+
 
 /* ══ [FIX v21] แผนโอนเงินแบบเส้นโยง — ฉากเด่นของแอป ══ */
 .flow {
@@ -649,10 +654,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 }
 .flow-clear-t { font-family:var(--font-display); font-size:16px; font-weight:600; color:#15803d !important; margin-top:6px; }
 .flow-clear-s { font-size:12.5px; color:#166534 !important; }
-@media (max-width:600px) {
-    .flow-side { width:64px; }
-    .flow-amt { font-size:17px; }
-}
+
 
 /* ══ [FIX v21] หน้าจอว่าง — บอกทางต่อ ไม่ใช่แค่บอกว่าไม่มี ══ */
 .empty {
@@ -709,6 +711,12 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     vertical-align:middle;
 }
 .pk-none { background:#9ca3af; }
+/* [FIX v39] เส้นคั่นระหว่างรายการ ให้เห็นว่าแต่ละชิ้นเริ่ม-จบตรงไหน
+   จำเป็นขึ้นมากเมื่อแยกเป็น 2 บรรทัดต่อรายการ */
+.pk-sep { border-bottom:1px solid #dbeafe; margin:2px 0 10px; }
+@media (max-width: 640px) {
+    .pk-sep { margin:6px 0 14px; border-bottom-width:1.5px; }
+}
 
 /* [FIX v32] คุมความสูงแผนที่ไม่ให้ล้นทับปุ่มด้านล่าง
    canvas ของ deck.gl บางครั้งขยายเกินคอนเทนเนอร์จนดันเนื้อหาอื่นตกจอ */
@@ -751,7 +759,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     color:#dc2626 !important; flex-shrink:0; font-variant-numeric:tabular-nums;
 }
 .camp-tmin { font-size:14px; color:#6b7280 !important; font-weight:500; }
-@media (max-width:600px) {
+@media (max-width: 640px) {
     .camp-sub { font-size:10.5px; }
     .camp-tmp { font-size:17px; }
 }
@@ -775,9 +783,145 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     font-family:var(--font-display); font-weight:700; font-size:14px; color:#000 !important;
 }
 .cat-pct { width:38px; text-align:right; flex-shrink:0; font-size:12px; color:#6b7280 !important; }
-@media (max-width:600px) {
+@media (max-width: 640px) {
     .cat-nm { width:74px; font-size:12px; }
     .cat-amt { width:64px; font-size:13px; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   [FIX v39] โหมดมือถือ
+   แอปนี้ถูกใช้ตอนอยู่ร้านอาหารและที่ลานกางเต็นท์ = มือถือคืออุปกรณ์หลัก
+   ปัญหาที่เจอ: Streamlit ไม่ยุบ st.columns ให้เองบนจอแคบ คอลัมน์เลย
+   ถูกบีบจนอ่านไม่ออก เช่นแถวของที่ต้องหิ้วมี 4 คอลัมน์ = คอลัมน์ละ ~85px
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+
+    /* ── 1. คอลัมน์ยุบเป็นแถวเดียวต่อบรรทัด ── */
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 1 1 100% !important;
+        min-width: 100% !important;
+        width: 100% !important;
+    }
+
+    /* ── 2. ยกเว้นแถบที่ต้องเรียงแนวนอนเสมอ ── */
+    div.st-key-menubar [data-testid="stHorizontalBlock"],
+    div[class*="st-key-tabbar"] [data-testid="stHorizontalBlock"],
+    div.st-key-userbtn [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 0 !important;
+    }
+    /* แถบเมนูหลักต้องยังเฉลี่ยเต็มความกว้างเหมือนเดิม */
+    div.st-key-menubar [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        width: auto !important;
+    }
+    /* แถบแท็บกว้างตามข้อความ แล้วเลื่อนแนวนอนเอา */
+    div[class*="st-key-tabbar"] [data-testid="stHorizontalBlock"] > [data-testid="column"],
+    div.st-key-userbtn [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 0 0 auto !important;
+        min-width: 0 !important;
+        width: auto !important;
+    }
+
+    /* ── 3. กลุ่มที่วาง 2 ช่องต่อแถวได้ (การ์ดยอดรายคน / ช่องติ๊กคนหาร) ── */
+    div.st-key-splitcols [data-testid="stHorizontalBlock"] > [data-testid="column"],
+    div.st-key-netcards [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 1 1 calc(50% - 4px) !important;
+        min-width: calc(50% - 4px) !important;
+        width: auto !important;
+    }
+    div.st-key-splitcols [data-testid="stHorizontalBlock"],
+    div.st-key-netcards [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+
+    /* ── 4. เป้ากดต้องใหญ่พอสำหรับนิ้ว (มาตรฐาน 44px) ── */
+    .stButton button,
+    [data-testid="stDownloadButton"] button,
+    [data-testid="stLinkButton"] a {
+        min-height: 44px !important;
+        font-size: 14px !important;
+    }
+    div[class*="st-key-tabbar"] .stButton button {
+        min-height: 46px !important;
+        padding: 10px 13px !important;
+        font-size: 13.5px !important;
+        width: auto !important;
+    }
+    /* แท็บที่เลือกอยู่ให้เด่นชัดกว่าเดิม เพราะบนมือถือเห็นไม่ครบทุกแท็บพร้อมกัน */
+    div[class*="st-key-tabbar"] .stButton button[kind="primary"] {
+        border-bottom-width: 4px !important;
+    }
+    div.st-key-menubar .stButton > button { height: 46px !important; }
+    [data-testid="stCheckbox"] { min-height: 40px !important; display:flex; align-items:center; }
+    [data-testid="stTextInput"] input,
+    [data-testid="stNumberInput"] input,
+    [data-testid="stSelectbox"] > div > div {
+        min-height: 42px !important;
+        font-size: 16px !important;   /* ต่ำกว่า 16px iOS จะซูมเข้าเองตอนกดพิมพ์ */
+    }
+
+    /* ── 5. แถบบนเตี้ยลง คืนพื้นที่ให้เนื้อหา ── */
+    .navbar-wrap .navbar { height: 46px; padding-right: 128px; }
+    div.st-key-menubar { top: 46px !important; }
+    .hdr-fill { height: 98px; }
+    .block-container, .main .block-container {
+        padding-top: 96px !important;
+        padding-left: .6rem !important; padding-right: .6rem !important;
+    }
+    div.st-key-userbtn { top: 6px !important; right: 8px !important; }
+
+    /* ── 6. แชท: ช่องพิมพ์ต้องอยู่บรรทัดเดียว ไม่ยุบตามกฎด้านบน ── */
+    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 5px !important;
+        align-items: flex-end !important;
+    }
+    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 0 0 auto !important; min-width: 0 !important; width: auto !important;
+    }
+    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child {
+        flex: 1 1 auto !important;
+    }
+    .fb-chat-body { max-height: 52vh !important; }
+
+    /* ── 7. ตัวหนังสือเล็กเกินไปบนมือถือ ── */
+    .bill-meta, .hero-meta, .hero-sub, .camp-co, .pk-stat { font-size: 12px !important; }
+    .bill-desc { font-size: 15px !important; white-space: normal !important; }
+    .bill-row { align-items: flex-start !important; padding: 11px !important; }
+    .bill-amt { font-size: 15px !important; }
+    [data-testid="stCaptionContainer"] p { font-size: 12px !important; }
+
+    /* ── 8. ยอดของฉัน: ให้เต็มตาแต่ไม่กินทั้งจอ ── */
+    .hero { padding: 14px 15px 16px !important; border-radius: 14px !important; }
+    .hero-amt { font-size: 40px !important; }
+
+    /* ── 9. แผนโอนเงิน: avatar เล็กลงเพื่อให้ยอดเงินมีที่พอ ── */
+    .flow { padding: 13px 11px 10px !important; gap: 6px !important; }
+    .flow-side { width: 58px !important; }
+    .flow-amt { font-size: 16px !important; }
+    .flow-nm { font-size: 11.5px !important; }
+
+    /* ── 10. พยากรณ์อากาศ: ข้อมูลย่อยขึ้นบรรทัดใหม่ได้ ── */
+    .camp-day { padding: 10px 11px !important; gap: 9px !important; }
+    .camp-sub { white-space: normal !important; line-height: 1.6 !important; }
+    .camp-dt { width: 44px !important; font-size: 12px !important; }
+
+    /* ── 11. ป๊อปอัพแจ้งเตือน: อย่าล้นขอบจอ ── */
+    .flash-box { max-width: calc(100vw - 32px) !important; }
+
+    /* ── 12. ตารางหมวดหมู่: ตัดคอลัมน์ % ที่ไม่จำเป็นออก ── */
+    .cat-pct { display: none !important; }
+    .cat-row { padding: 8px 11px !important; }
+
+    /* ── 13. ฟอร์ม: ลดระยะห่างที่ทำให้ต้องเลื่อนเยอะ ── */
+    [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .55rem !important; }
+    div.st-key-menubar [data-testid="stVerticalBlock"],
+    div[class*="st-key-tabbar"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    .section-head { font-size: 14px !important; padding: 8px 0 6px !important; margin-bottom: 9px !important; }
 }
 
 /* ══ CARDS ══ */
@@ -857,7 +1001,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
      78% { opacity: 1; transform: translateY(0)    scale(1);   }
     100% { opacity: 0; transform: translateY(-8px) scale(.97); visibility: hidden; }
 }
-@media (max-width:600px) {
+@media (max-width: 640px) {
     .flash-box { min-width: 0; padding: 15px 20px; font-size: 15px; }
 }
 
@@ -1918,9 +2062,13 @@ if menu == "home":
                                               [f"{CAT_ICON[n]} {n}" for n in CAT_NAMES])
                         fup    = st.file_uploader("📎 สลิป:", type=['jpg','png','jpeg'])
                     st.markdown("**👥 ร่วมหาร:**")
-                    nc = min(len(members),5)
-                    sc = st.columns(nc)
-                    split_to = [m for i,m in enumerate(members) if sc[i%nc].checkbox(m, value=True, key=f"sp_{m}")]
+                    # [FIX v39] ห่อด้วยคอนเทนเนอร์ที่มี key เพื่อให้ CSS จับได้
+                    #   บนมือถือจะยุบเหลือ 2 ช่องต่อแถวแทนที่จะบีบ 5 ช่อง
+                    with st.container(key="splitcols"):
+                        nc = min(len(members),5)
+                        sc = st.columns(nc)
+                        split_to = [m for i,m in enumerate(members)
+                                    if sc[i%nc].checkbox(m, value=True, key=f"sp_{m}")]
 
                     # [FIX v22] หารไม่เท่ากัน — ของเดิมหารเท่ากันเสมอ ซึ่งไม่ตรงกับ
                     #   การใช้จริง (คนไม่กินเหล้า ห้องพักคนละแบบ ใครสั่งเพิ่มจ่ายเพิ่ม)
@@ -2071,7 +2219,8 @@ if menu == "home":
                             "➕ ไปหน้าเพิ่มบิล", "go_sum_add", ("tab_home", 0))
             else:
                 st.markdown("#### 📊 ยอดสรุปรายคน")
-                nc2 = min(len(net),4); cols2 = st.columns(nc2)
+                _netbox = st.container(key="netcards")   # [FIX v39] มือถือ = 2 ใบต่อแถว
+                nc2 = min(len(net),4); cols2 = _netbox.columns(nc2)
                 for i,(m2,b) in enumerate(sorted(net.items(), key=lambda x:-x[1])):
                     clr = "#16a34a" if b>0.01 else ("#dc2626" if b<-0.01 else "#6b7280")
                     lbl = "รับคืน" if b>0.01 else ("ต้องจ่าย" if b<-0.01 else "เท่ากัน")
@@ -2289,7 +2438,12 @@ if menu == "home":
 
                 for r in packs:
                     k = r['id']
-                    row = st.columns([0.6, 4, 2.2, 1.2])
+                    # [FIX v39] แยกเป็น 2 แถว: บรรทัดบน = ติ๊ก + ชื่อของ (อ่านง่าย)
+                    #   บรรทัดล่าง = เลือกคนรับ + ปุ่มลบ ซึ่งบนมือถือจะยุบเป็นเต็มบรรทัด
+                    #   ของเดิมยัด 4 คอลัมน์ในแถวเดียว บนจอ 380px เหลือช่องละ ~85px
+                    row = st.columns([0.9, 6])
+                    row2 = st.columns([3, 1])
+                    row = [row[0], row[1], row2[0], row2[1]]
                     # [FIX v37] ใส่ค่า done ลงใน key ด้วย
                     #   ปัญหาเดิม: Streamlit จำค่า checkbox ตาม key ไว้ใน session
                     #   และค่าที่จำไว้ "ชนะ" พารามิเตอร์ value= เสมอ
@@ -2326,6 +2480,7 @@ if menu == "home":
                     if row[3].button("ลบ", key=f"pkdel_{k}", use_container_width=True):
                         c = db(); c.execute("DELETE FROM packing WHERE id=?", (k,)); c.commit(); c.close()
                         flash("ลบรายการแล้ว", "warn"); st.rerun()
+                    st.markdown('<div class="pk-sep"></div>', unsafe_allow_html=True)
 
                 # [FIX v28] จุดที่เชื่อมกับระบบบิล — ของที่ซื้อมาแล้วกลายเป็นบิลได้เลย
                 st.markdown('<div class="section-head" style="margin-top:14px;">'
@@ -2944,7 +3099,8 @@ elif menu == "chat":
                 with st.form("ncf", clear_on_submit=True):
                     nt=st.selectbox("ถึง:", others)
                     nm=st.text_input("ข้อความ", placeholder="พิมพ์ข้อความ...", label_visibility="collapsed")
-                    b1,b2=st.columns([3,1])
+                    _cp0 = st.container(key="composer_new")
+                    b1,b2=_cp0.columns([3,1.2])
                     if b1.form_submit_button("ส่ง ▶", type="primary", use_container_width=True) and nm.strip():
                         c=db(); c.execute("INSERT INTO notifications (trip_id,to_user,from_user,message,is_auto,is_read,timestamp) VALUES (?,?,?,?,0,0,?)",(trip_id,nt,me,nm.strip(),now_str())); c.commit(); c.close()
                         st.session_state["chat_partner"]=nt; st.rerun()
@@ -2998,7 +3154,10 @@ elif menu == "chat":
 
                 if pt!="🤖 ระบบ":
                     with st.form(key=f"rp_{pt}", clear_on_submit=True):
-                        ri,rb,rl=st.columns([6,1,1])
+                        # [FIX v39] ช่องพิมพ์ + ปุ่มส่ง ต้องอยู่บรรทัดเดียวเหมือนแอปแชททั่วไป
+                        #   จึงกันไม่ให้ยุบตามกฎมือถือ (ดู .st-key-composer ใน CSS)
+                        _cp = st.container(key=f"composer_{pt}")
+                        ri,rb,rl=_cp.columns([6,1.3,1.3])
                         rtx=ri.text_input("ข้อความตอบกลับ",placeholder=f"พิมพ์ถึง {esc(pt)}...",label_visibility="collapsed")
                         snt=rb.form_submit_button("▶",type="primary",use_container_width=True)
                         lkd=rl.form_submit_button("👍",use_container_width=True)
