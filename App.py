@@ -855,7 +855,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     div[class*="st-key-tabbar"] .stButton button[kind="primary"] {
         border-bottom-width: 4px !important;
     }
-    div.st-key-menubar .stButton > button { height: 46px !important; }
+    div.st-key-menubar .stButton > button { height: 44px !important; }
     [data-testid="stCheckbox"] { min-height: 40px !important; display:flex; align-items:center; }
     [data-testid="stTextInput"] input,
     [data-testid="stNumberInput"] input,
@@ -864,15 +864,14 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
         font-size: 16px !important;   /* ต่ำกว่า 16px iOS จะซูมเข้าเองตอนกดพิมพ์ */
     }
 
-    /* ── 5. แถบบนเตี้ยลง คืนพื้นที่ให้เนื้อหา ── */
-    .navbar-wrap .navbar { height: 46px; padding-right: 128px; }
-    div.st-key-menubar { top: 46px !important; }
-    .hdr-fill { height: 98px; }
+    /* ── 5. แถบบน: คงความสูงเดิม (navbar 50 + menubar 44) ──
+       [FIX v41] เคยลดเหลือ 46px เพื่อประหยัดพื้นที่ แต่ทำให้หน้าตาเพี้ยนไป
+       จากเดิม จึงคืนค่าเดิม ปรับแค่ระยะขอบซ้ายขวาให้เหมาะกับจอแคบ */
+    .navbar-wrap .navbar { padding-right: 128px; }
     .block-container, .main .block-container {
-        padding-top: 96px !important;
         padding-left: .6rem !important; padding-right: .6rem !important;
     }
-    div.st-key-userbtn { top: 6px !important; right: 8px !important; }
+    div.st-key-userbtn { top: 8px !important; right: 8px !important; }
 
     /* ── 6. แชท: ช่องพิมพ์ต้องอยู่บรรทัดเดียว ไม่ยุบตามกฎด้านบน ── */
     div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] {
@@ -2005,10 +2004,9 @@ render_flash()
 #   จนไม่เหลือบัญชีให้ล็อกอิน ซึ่งเป็นตอนที่ต้องใช้การกู้คืนมากที่สุดพอดี
 #   (ถ้าบังคับล็อกอินก่อน จะกลายเป็นวนลูปที่ออกไม่ได้)
 BACKUP_TAB_INDEX = 4
-_backup_only = (not me and menu == "manage"
-                and st.session_state.get("tab_manage") == BACKUP_TAB_INDEX)
-
-if not me and menu != "account" and not _backup_only:
+# [FIX v41] ปล่อยหน้า "จัดการ" ผ่านประตูนี้เสมอ เพื่อให้แถบแท็บยังแสดงครบ
+#   แล้วไปกั้นเนื้อหาเป็นรายแท็บในหน้านั้นแทน (แท็บสำรองข้อมูลเปิดให้ใช้ได้)
+if not me and menu not in ("account", "manage"):
     st.markdown(
         '<div class="card" style="text-align:center;padding:44px 20px;">'
         '<div style="font-size:50px;">🔒</div>'
@@ -2692,18 +2690,31 @@ if menu == "home":
 # ═══════════════════════════════════════════════════════
 elif menu == "manage":
     # [FIX v19] ใช้ tab_bar แทน st.tabs ด้วยเหตุผลเดียวกับหน้าหลัก
-    if _backup_only:
-        # [FIX v40] ยังไม่ล็อกอิน = เห็นเฉพาะหน้าสำรองข้อมูล
-        #   ไม่แสดงแท็บอื่นเลย เพื่อไม่ให้ข้อมูลทริป/สมาชิก/แชท รั่วออกไป
-        _mt = BACKUP_TAB_INDEX
-        st.info("💾 โหมดสำรอง/กู้คืนข้อมูล — เข้าได้โดยไม่ต้องล็อกอิน "
-                "ส่วนอื่นของแอปต้องเข้าสู่ระบบก่อน")
-        if st.button("🔐 กลับไปหน้าเข้าสู่ระบบ", use_container_width=True):
+    # [FIX v41] แถบแท็บกลับมาแสดงครบเหมือนเดิมทุกกรณี
+    #   ของเดิม (v40) ซ่อนทั้งแถบตอนยังไม่ล็อกอิน ทำให้เมนูหายไปดื้อ ๆ
+    #   วิธีที่ดีกว่าคือคงแถบไว้ให้เหมือนกันเสมอ แล้วไปกั้นที่ "เนื้อหา" แทน
+    #   ผู้ใช้จึงเห็นโครงเมนูเดิม และข้อมูลก็ยังไม่รั่วอยู่ดี
+    _mt = tab_bar("tab_manage", ["🗓️ Events", "👥 สมาชิก", "🧮 ยอดรวมทุกทริป",
+                                 "🗑️ ถังขยะ", "💾 สำรองข้อมูล"])
+
+    if not me and _mt != BACKUP_TAB_INDEX:
+        # ยังไม่ล็อกอินแล้วกดแท็บอื่น → กั้นตรงนี้ ไม่ให้เห็นข้อมูล
+        st.markdown(
+            '<div class="card" style="text-align:center;padding:34px 20px;">'
+            '<div style="font-size:42px;">🔒</div>'
+            '<div style="font-family:var(--font-display);font-weight:600;font-size:17px;'
+            'margin:8px 0 5px;">ส่วนนี้ต้องเข้าสู่ระบบก่อน</div>'
+            '<div style="color:#6b7280;font-size:13px;">แท็บ '
+            '<b>💾 สำรองข้อมูล</b> ใช้ได้โดยไม่ต้องเข้าสู่ระบบ</div></div>',
+            unsafe_allow_html=True)
+        _bl, _bc, _br = st.columns([1, 2, 1])
+        if _bc.button("🔐 ไปหน้าเข้าสู่ระบบ", type="primary", use_container_width=True):
             st.session_state["menu"] = "account"
             st.rerun()
-    else:
-        _mt = tab_bar("tab_manage", ["🗓️ Events", "👥 สมาชิก", "🧮 ยอดรวมทุกทริป",
-                                     "🗑️ ถังขยะ", "💾 สำรองข้อมูล"])
+        if _bc.button("💾 ไปแท็บสำรองข้อมูล", use_container_width=True):
+            st.session_state["tab_manage"] = BACKUP_TAB_INDEX
+            st.rerun()
+        st.stop()
 
     # ── TAB: Events ────────────────────────────────────
     if _mt == 0:
