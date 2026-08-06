@@ -845,12 +845,37 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
         min-height: 44px !important;
         font-size: 14px !important;
     }
+    /* [FIX v43] ต้นเหตุที่ "เมนูแสดงไม่ครบ" บนมือถือ:
+       ปุ่มแท็บตั้ง white-space:nowrap + text-overflow:ellipsis ไว้
+       พอความกว้างไม่พอ ข้อความจะถูกตัดหายไปเลย ไม่ใช่แค่ย่อ
+       แก้โดยให้ขึ้นบรรทัดที่ 2 ได้ — วิธีนี้ไม่ต้องเดาความกว้างของฟอนต์
+       ตัวอักษรไทยกว้างไม่เท่ากันในแต่ละเครื่อง การคำนวณล่วงหน้าจึงไม่แน่นอน */
     div[class*="st-key-tabbar"] .stButton button {
-        min-height: 46px !important;
-        padding: 10px 2px !important;
+        min-height: 48px !important;
+        height: auto !important;
+        padding: 7px 2px !important;
         font-size: 11px !important;
         width: 100% !important;
         letter-spacing: -0.2px !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        line-height: 1.25 !important;
+        word-break: break-word !important;
+    }
+    div[class*="st-key-tabbar"] .stButton button p {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        line-height: 1.25 !important;
+    }
+    /* เมนูหลักก็กันไว้เหมือนกัน แต่คุมความสูงไม่ให้ดันแถบล่างเคลื่อน */
+    div.st-key-menubar .stButton > button,
+    div.st-key-menubar .stButton > button p {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        line-height: 1.2 !important;
     }
     /* แท็บที่เลือกอยู่ให้เด่นชัดกว่าเดิม เพราะบนมือถือเห็นไม่ครบทุกแท็บพร้อมกัน */
     div[class*="st-key-tabbar"] .stButton button[kind="primary"] {
@@ -929,7 +954,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 @media (max-width: 380px) {
     div[class*="st-key-tabbar"] .stButton button {
         font-size: 10px !important;
-        padding: 10px 1px !important;
+        padding: 6px 1px !important;
         letter-spacing: -0.3px !important;
     }
     div.st-key-menubar .stButton > button { font-size: 12px !important; padding: 0 1px !important; }
