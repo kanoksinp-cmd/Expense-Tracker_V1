@@ -512,14 +512,10 @@ div[class*="st-key-tabbar"] {
     border-radius: 8px 8px 0 0 !important;
     padding: 0 4px !important;
     margin-bottom: 14px !important;
-    /* [FIX v39] 5 แท็บบนจอ 380px = แท็บละ 76px ชื่อไทยหายหมด
-       ให้เลื่อนแนวนอนแทนการบีบ ชื่อจะได้อ่านออกครบ */
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    /* [FIX v42] แสดงครบทุกแท็บพอดีจอ ไม่ต้องเลื่อน
+       ทำได้เพราะย่อชื่อแท็บให้สั้นลงแล้ว (ดูคอมเมนต์ตรง tab_bar) */
+    overflow: hidden !important;
 }
-div[class*="st-key-tabbar"]::-webkit-scrollbar { display: none; }
 div[class*="st-key-tabbar"] div[data-testid="stHorizontalBlock"] {
     gap: 0 !important;
 }
@@ -820,8 +816,12 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
         min-width: 0 !important;
         width: auto !important;
     }
-    /* แถบแท็บกว้างตามข้อความ แล้วเลื่อนแนวนอนเอา */
-    div[class*="st-key-tabbar"] [data-testid="stHorizontalBlock"] > [data-testid="column"],
+    /* [FIX v42] แท็บเฉลี่ยเต็มความกว้าง เห็นครบทุกอันไม่ต้องเลื่อน */
+    div[class*="st-key-tabbar"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        width: auto !important;
+    }
     div.st-key-userbtn [data-testid="stHorizontalBlock"] > [data-testid="column"] {
         flex: 0 0 auto !important;
         min-width: 0 !important;
@@ -847,9 +847,10 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     }
     div[class*="st-key-tabbar"] .stButton button {
         min-height: 46px !important;
-        padding: 10px 13px !important;
-        font-size: 13.5px !important;
-        width: auto !important;
+        padding: 10px 2px !important;
+        font-size: 11px !important;
+        width: 100% !important;
+        letter-spacing: -0.2px !important;
     }
     /* แท็บที่เลือกอยู่ให้เด่นชัดกว่าเดิม เพราะบนมือถือเห็นไม่ครบทุกแท็บพร้อมกัน */
     div[class*="st-key-tabbar"] .stButton button[kind="primary"] {
@@ -921,6 +922,19 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     div.st-key-menubar [data-testid="stVerticalBlock"],
     div[class*="st-key-tabbar"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
     .section-head { font-size: 14px !important; padding: 8px 0 6px !important; margin-bottom: 9px !important; }
+}
+
+/* [FIX v42] จอแคบมาก (iPhone SE / เครื่องเล็ก) ย่อชื่อแท็บอีกขั้น
+   ยอมให้ตัวหนังสือเล็กลงดีกว่าปล่อยให้ตกบรรทัดหรือโดนตัดหาย */
+@media (max-width: 380px) {
+    div[class*="st-key-tabbar"] .stButton button {
+        font-size: 10px !important;
+        padding: 10px 1px !important;
+        letter-spacing: -0.3px !important;
+    }
+    div.st-key-menubar .stButton > button { font-size: 12px !important; padding: 0 1px !important; }
+    .navbar-wrap .navbar { padding-right: 116px; }
+    div.st-key-userbtn .stButton button { max-width: 92px !important; }
 }
 
 /* ══ [FIX v40] รายการสิ่งที่อยู่ในไฟล์สำรอง ══ */
@@ -2064,8 +2078,12 @@ if menu == "home":
             '</div>', unsafe_allow_html=True)
 
         # [FIX v19] ใช้ tab_bar แทน st.tabs — แท็บที่เลือกจะไม่เด้งกลับเองอีก
+        # [FIX v42] ย่อชื่อแท็บให้ครบทั้ง 5 อันพอดีจอมือถือโดยไม่ต้องเลื่อน
+        #   คำนวณแล้ว: จอ 380px ÷ 5 = 76px ต่อแท็บ
+        #   "ของที่ต้องหิ้ว" ต้องการ 107px แม้ย่อฟอนต์เหลือ 10px ก็ยังล้น
+        #   จึงต้องย่อชื่อด้วย ไม่ใช่ย่อแค่ฟอนต์
         _ht = tab_bar("tab_home", ["➕ เพิ่มบิล", "📋 ประวัติ", "💰 สรุปเงิน",
-                                   "🎒 ของที่ต้องหิ้ว", "⛺ แคมป์"])
+                                   "🎒 สัมภาระ", "⛺ แคมป์"])
 
         # ── TAB 1 ──────────────────────────────────────────────
         if _ht == 0:
@@ -2694,8 +2712,8 @@ elif menu == "manage":
     #   ของเดิม (v40) ซ่อนทั้งแถบตอนยังไม่ล็อกอิน ทำให้เมนูหายไปดื้อ ๆ
     #   วิธีที่ดีกว่าคือคงแถบไว้ให้เหมือนกันเสมอ แล้วไปกั้นที่ "เนื้อหา" แทน
     #   ผู้ใช้จึงเห็นโครงเมนูเดิม และข้อมูลก็ยังไม่รั่วอยู่ดี
-    _mt = tab_bar("tab_manage", ["🗓️ Events", "👥 สมาชิก", "🧮 ยอดรวมทุกทริป",
-                                 "🗑️ ถังขยะ", "💾 สำรองข้อมูล"])
+    _mt = tab_bar("tab_manage", ["🗓️ Events", "👥 สมาชิก", "🧮 ยอดรวม",
+                                 "🗑️ ถังขยะ", "💾 สำรอง"])
 
     if not me and _mt != BACKUP_TAB_INDEX:
         # ยังไม่ล็อกอินแล้วกดแท็บอื่น → กั้นตรงนี้ ไม่ให้เห็นข้อมูล
@@ -2705,13 +2723,13 @@ elif menu == "manage":
             '<div style="font-family:var(--font-display);font-weight:600;font-size:17px;'
             'margin:8px 0 5px;">ส่วนนี้ต้องเข้าสู่ระบบก่อน</div>'
             '<div style="color:#6b7280;font-size:13px;">แท็บ '
-            '<b>💾 สำรองข้อมูล</b> ใช้ได้โดยไม่ต้องเข้าสู่ระบบ</div></div>',
+            '<b>💾 สำรอง</b> ใช้ได้โดยไม่ต้องเข้าสู่ระบบ</div></div>',
             unsafe_allow_html=True)
         _bl, _bc, _br = st.columns([1, 2, 1])
         if _bc.button("🔐 ไปหน้าเข้าสู่ระบบ", type="primary", use_container_width=True):
             st.session_state["menu"] = "account"
             st.rerun()
-        if _bc.button("💾 ไปแท็บสำรองข้อมูล", use_container_width=True):
+        if _bc.button("💾 ไปแท็บสำรอง", use_container_width=True):
             st.session_state["tab_manage"] = BACKUP_TAB_INDEX
             st.rerun()
         st.stop()
