@@ -1086,11 +1086,20 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
 #   ให้เพิ่มตัวเลขนี้ (เช่น 8000 = 8 วินาที) หรือใส่ 0 เพื่อปิดการรีเฟรชอัตโนมัติ
 #   ทุกครั้งที่รีเฟรช Streamlit จะวาด DOM ใหม่ทั้งหน้า ยิ่งถี่ยิ่งมีโอกาสเห็นสะดุด
 #   หมายเหตุ: ถ้าปิด สถานะ "ออนไลน์" ของเพื่อนจะไม่อัปเดตเองจนกว่าจะกดอะไรสักอย่าง
-AUTOREFRESH_MS = 3000
+# [FIX v45] รีเฟรชอัตโนมัติเฉพาะเท่าที่จำเป็น
+#   ของเดิมรันสคริปต์ใหม่ทั้งหน้าทุก 3 วินาทีทุกหน้า วัดแล้วรอบละ ~460-520 ms
+#   = เซิร์ฟเวอร์ทำงานเกือบตลอดเวลา พอกดปุ่มจึงต้องรอคิว รู้สึกหน่วง
+#   หน้าที่ต้องอัปเดตสดจริง ๆ มีแค่แชท ที่เหลือ 20 วิพอสำหรับสถานะออนไลน์
+AUTOREFRESH_CHAT_MS  = 3000     # หน้าแชท — ข้อความใหม่ต้องมาไว
+AUTOREFRESH_OTHER_MS = 20000    # หน้าอื่น — แค่ให้สถานะออนไลน์ไม่ค้าง
+                                # ใส่ 0 เพื่อปิดการรีเฟรชอัตโนมัติของหน้านั้น ๆ
+
+_cur_page = st.session_state.get("menu", "home")
+_refresh_ms = AUTOREFRESH_CHAT_MS if _cur_page == "chat" else AUTOREFRESH_OTHER_MS
 
 with st.container(key="hidden_utils"):
-    if AUTOREFRESH_MS:
-        st_autorefresh(interval=AUTOREFRESH_MS, limit=None, key="live_refresh")
+    if _refresh_ms:
+        st_autorefresh(interval=_refresh_ms, limit=None, key="live_refresh")
 
 # ─────────────────────────────────────────────────────────────
 # DATABASE
@@ -1713,6 +1722,14 @@ def locked_notice(closed):
     return closed
 
 
+def _set_state(**kw):
+    """[FIX v45] callback สำหรับปุ่มที่แค่เปลี่ยนหน้า/แท็บ ไม่ได้แตะฐานข้อมูล
+    ใช้กับ on_click แทนการเขียน 'if button(): set state; st.rerun()'
+    ซึ่งทำให้กดหนึ่งครั้งรันสคริปต์ 2 รอบ = ช้าเป็นเท่าตัวโดยไม่จำเป็น"""
+    for k, v in kw.items():
+        st.session_state[k] = v
+
+
 def empty_state(icon, title, sub, btn_label=None, btn_key=None, goto=None):
     """[FIX v21] หน้าจอว่างที่บอกทางต่อ — ของเดิมใช้ st.info('ยังไม่มีบิล')
     ซึ่งบอกแค่ว่าไม่มี แต่ไม่บอกว่าให้ทำอะไรต่อ กลายเป็นทางตัน
@@ -1722,9 +1739,8 @@ def empty_state(icon, title, sub, btn_label=None, btn_key=None, goto=None):
                 f'<div class="empty-s">{esc(sub)}</div></div>', unsafe_allow_html=True)
     if btn_label and goto:
         bl, bc, br = st.columns([1, 2, 1])
-        if bc.button(btn_label, key=btn_key, type="primary", use_container_width=True):
-            st.session_state[goto[0]] = goto[1]
-            st.rerun()
+        bc.button(btn_label, key=btn_key, type="primary", use_container_width=True,
+                  on_click=_set_state, kwargs={goto[0]: goto[1]})
 
 
 # ── [FIX v22] หารเงิน 3 แบบ + เกลี่ยเศษสตางค์ ─────────────────
@@ -1846,14 +1862,21 @@ def tab_bar(state_key, labels, default=0):
     cur = st.session_state[state_key]
     if cur >= len(labels):
         cur = st.session_state[state_key] = default
+    # [FIX v45] ใช้ on_click callback แทน "if button(): set state; st.rerun()"
+    #   แบบเดิมกดหนึ่งครั้ง = รันสคริปต์ 2 รอบ (รอบที่ปุ่มคืน True + รอบจาก rerun)
+    #   ทำให้รู้สึกหน่วงเป็นเท่าตัว
+    #   callback ทำงาน "ก่อน" สคริปต์เริ่มรัน สถานะจึงถูกต้องตั้งแต่รอบแรก
+    #   ปุ่มที่เลือกก็ไฮไลต์ถูกทันทีโดยไม่ต้อง rerun ซ้ำ
+    def _pick(k=state_key, idx=None):
+        st.session_state[k] = idx
+
     with st.container(key=f"tabbar_{state_key}"):
         cols = st.columns(len(labels))
         for i, (col, lb) in enumerate(zip(cols, labels)):
-            if col.button(lb, key=f"{state_key}_t{i}",
-                          type="primary" if i == cur else "secondary",
-                          use_container_width=True):
-                st.session_state[state_key] = i
-                st.rerun()
+            col.button(lb, key=f"{state_key}_t{i}",
+                       type="primary" if i == cur else "secondary",
+                       use_container_width=True,
+                       on_click=_pick, kwargs={"idx": i})
     return st.session_state[state_key]
 
 def heartbeat(u):
@@ -2027,23 +2050,24 @@ with st.container(key="userbtn"):
     #   (รวมถึง st.tabs) แท็บที่เลือกไว้เลยถูกรีเซ็ตกลับอันแรก
     st.markdown(f'<div class="nb-badges">{green_part}{red_part}</div>',
                 unsafe_allow_html=True)
-    if st.button(name_str, key="btn_user",
-                 type="primary" if cur_menu == "account" else "secondary"):
-        st.session_state["menu"] = "account"
-        st.rerun()
+    st.button(name_str, key="btn_user",
+              type="primary" if cur_menu == "account" else "secondary",
+              on_click=_set_state, kwargs={"menu": "account"})
 
 # ── Menu bar — wrapped in a keyed container so CSS has a stable,
 #    version-proof hook (`.st-key-menubar`) instead of guessing DOM nesting ──
+def _go_menu(k=None):        # [FIX v45] callback = รันรอบเดียวต่อการกด
+    st.session_state["menu"] = k
+
 with st.container(key="menubar"):
     nav_cols = st.columns(len(MENUS))
     for col, (icon, label, key) in zip(nav_cols, MENUS):
         badge = f" {notif_count}🔴" if key == "chat" and notif_count > 0 else ""
         active = cur_menu == key
-        if col.button(f"{icon} {label}{badge}", key=f"nav_{key}",
-                      type="primary" if active else "secondary",
-                      use_container_width=True):
-            st.session_state["menu"] = key
-            st.rerun()
+        col.button(f"{icon} {label}{badge}", key=f"nav_{key}",
+                   type="primary" if active else "secondary",
+                   use_container_width=True,
+                   on_click=_go_menu, kwargs={"k": key})
 
 menu = st.session_state["menu"]
 
@@ -2069,13 +2093,11 @@ if not me and menu not in ("account", "manage"):
         'จะแสดงเมื่อเข้าสู่ระบบแล้วเท่านั้น</div></div>',
         unsafe_allow_html=True)
     _gl, _gc, _gr = st.columns([1, 2, 1])
-    if _gc.button("🔐 ไปหน้าเข้าสู่ระบบ", type="primary", use_container_width=True):
-        st.session_state["menu"] = "account"
-        st.rerun()
-    if _gc.button("💾 สำรอง / กู้คืนข้อมูล", use_container_width=True):
-        st.session_state["menu"] = "manage"
-        st.session_state["tab_manage"] = BACKUP_TAB_INDEX
-        st.rerun()
+    _gc.button("🔐 ไปหน้าเข้าสู่ระบบ", type="primary", use_container_width=True,
+               on_click=_set_state, kwargs={"menu": "account"})
+    _gc.button("💾 สำรอง / กู้คืนข้อมูล", use_container_width=True,
+               on_click=_set_state,
+               kwargs={"menu": "manage", "tab_manage": BACKUP_TAB_INDEX})
     st.stop()
 
 # ═══════════════════════════════════════════════════════
@@ -2765,12 +2787,10 @@ elif menu == "manage":
             '<b>💾 สำรอง</b> ใช้ได้โดยไม่ต้องเข้าสู่ระบบ</div></div>',
             unsafe_allow_html=True)
         _bl, _bc, _br = st.columns([1, 2, 1])
-        if _bc.button("🔐 ไปหน้าเข้าสู่ระบบ", type="primary", use_container_width=True):
-            st.session_state["menu"] = "account"
-            st.rerun()
-        if _bc.button("💾 ไปแท็บสำรอง", use_container_width=True):
-            st.session_state["tab_manage"] = BACKUP_TAB_INDEX
-            st.rerun()
+        _bc.button("🔐 ไปหน้าเข้าสู่ระบบ", type="primary", use_container_width=True,
+                   on_click=_set_state, kwargs={"menu": "account"})
+        _bc.button("💾 ไปแท็บสำรอง", use_container_width=True,
+                   on_click=_set_state, kwargs={"tab_manage": BACKUP_TAB_INDEX})
         st.stop()
 
     # ── TAB: Events ────────────────────────────────────
@@ -2893,9 +2913,9 @@ elif menu == "manage":
                     btn_type = "primary" if sel else "secondary"
 
                     # เมื่อกดปุ่มชื่อ Event
-                    if st.button(btn_label, key=f"sel_ev_{tid2}", type=btn_type, use_container_width=True):
-                        st.session_state["trip_id"] = tid2
-                        st.rerun()
+                    st.button(btn_label, key=f"sel_ev_{tid2}", type=btn_type,
+                              use_container_width=True,
+                              on_click=_set_state, kwargs={"trip_id": tid2})
             else:
                 empty_state("🗓️", "ยังไม่มี Event",
                             "สร้าง Event แรกจากช่องทางซ้ายมือ เช่น ทริปเชียงใหม่ หรือ ข้าวเย็น")
@@ -3206,8 +3226,9 @@ elif menu == "chat":
                             unsafe_allow_html=True)
             for pt in grps:
                 u3=unrd[pt]; bdg=f" 🔴{u3}" if u3>0 else ""
-                if st.button(f"{pt[0].upper()}  {pt}{bdg}", key=f"cs_{pt}", use_container_width=True):
-                    st.session_state["chat_partner"]=pt; st.rerun()
+                st.button(f"{pt[0].upper()}  {pt}{bdg}", key=f"cs_{pt}",
+                          use_container_width=True,
+                          on_click=_set_state, kwargs={"chat_partner": pt})
             st.markdown("---")
             st.markdown("**📝 เริ่มแชทใหม่**")
             others=[m for m in members if m!=me]
