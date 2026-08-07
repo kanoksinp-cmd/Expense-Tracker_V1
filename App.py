@@ -364,8 +364,12 @@ div.st-key-menubar {
 }
 div.st-key-menubar div[data-testid="stHorizontalBlock"] {
     gap: 0 !important; margin: 0 !important; padding: 0 !important;
+    /* [FIX v44] ล็อกให้เรียงแนวนอนเสมอทุกขนาดจอ */
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    width: 100% !important;
 }
-div.st-key-menubar div[data-testid="column"] {
+div.st-key-menubar div[data-testid$="olumn"] {
     padding: 0 !important; flex: 1 !important; min-width: 0 !important;
 }
 div.st-key-menubar .stButton { margin: 0 !important; }
@@ -518,8 +522,11 @@ div[class*="st-key-tabbar"] {
 }
 div[class*="st-key-tabbar"] div[data-testid="stHorizontalBlock"] {
     gap: 0 !important;
+    flex-direction: row !important;   /* [FIX v44] */
+    flex-wrap: nowrap !important;
+    width: 100% !important;
 }
-div[class*="st-key-tabbar"] div[data-testid="column"] {
+div[class*="st-key-tabbar"] div[data-testid$="olumn"] {
     padding: 0 !important; min-width: 0 !important;
 }
 div[class*="st-key-tabbar"] .stButton { margin: 0 !important; }
@@ -797,7 +804,7 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
         flex-wrap: wrap !important;
         gap: 6px !important;
     }
-    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    [data-testid="stHorizontalBlock"] > [data-testid$="olumn"] {
         flex: 1 1 100% !important;
         min-width: 100% !important;
         width: 100% !important;
@@ -807,30 +814,37 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
     div.st-key-menubar [data-testid="stHorizontalBlock"],
     div[class*="st-key-tabbar"] [data-testid="stHorizontalBlock"],
     div.st-key-userbtn [data-testid="stHorizontalBlock"] {
+        /* [FIX v44] ต้องบังคับ flex-direction ด้วย ไม่ใช่แค่ nowrap
+           เพราะ Streamlit กำหนดทิศทางเองผ่าน prop และบนจอแคบอาจสลับเป็นแนวตั้ง
+           ซึ่งทำให้เห็นแค่ปุ่มแรก ที่เหลือตกไปอยู่ใต้แถบที่ความสูงตายตัว */
+        flex-direction: row !important;
         flex-wrap: nowrap !important;
         gap: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
     }
     /* แถบเมนูหลักต้องยังเฉลี่ยเต็มความกว้างเหมือนเดิม */
-    div.st-key-menubar [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    div.st-key-menubar [data-testid="stHorizontalBlock"] > [data-testid$="olumn"] {
         flex: 1 1 0 !important;
         min-width: 0 !important;
         width: auto !important;
     }
     /* [FIX v42] แท็บเฉลี่ยเต็มความกว้าง เห็นครบทุกอันไม่ต้องเลื่อน */
-    div[class*="st-key-tabbar"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    div[class*="st-key-tabbar"] [data-testid="stHorizontalBlock"] > [data-testid$="olumn"] {
         flex: 1 1 0 !important;
         min-width: 0 !important;
         width: auto !important;
     }
-    div.st-key-userbtn [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    div.st-key-userbtn [data-testid="stHorizontalBlock"] > [data-testid$="olumn"] {
         flex: 0 0 auto !important;
         min-width: 0 !important;
         width: auto !important;
     }
 
     /* ── 3. กลุ่มที่วาง 2 ช่องต่อแถวได้ (การ์ดยอดรายคน / ช่องติ๊กคนหาร) ── */
-    div.st-key-splitcols [data-testid="stHorizontalBlock"] > [data-testid="column"],
-    div.st-key-netcards [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    div.st-key-splitcols [data-testid="stHorizontalBlock"] > [data-testid$="olumn"],
+    div.st-key-netcards [data-testid="stHorizontalBlock"] > [data-testid$="olumn"] {
         flex: 1 1 calc(50% - 4px) !important;
         min-width: calc(50% - 4px) !important;
         width: auto !important;
@@ -905,10 +919,10 @@ div[class*="st-key-tabbar"] .stButton button[kind="primary"] p { color: #1d4ed8 
         gap: 5px !important;
         align-items: flex-end !important;
     }
-    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] > [data-testid$="olumn"] {
         flex: 0 0 auto !important; min-width: 0 !important; width: auto !important;
     }
-    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child {
+    div[class*="st-key-composer"] [data-testid="stHorizontalBlock"] > [data-testid$="olumn"]:first-child {
         flex: 1 1 auto !important;
     }
     .fb-chat-body { max-height: 52vh !important; }
